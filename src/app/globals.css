@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+:root {
+	color-scheme: light;
+
+	/* Text */
+	--txt-1: #0f1115;
+	--txt-2: #2a2f37;
+	--txt-3: #6b7280;
+
+	/* Page backgrounds */
+	--bg-1: #f7f6f4;
+	--bg-2: #ffffff;
+	--bg-3: #f0efec;
+
+	/* Accents */
+	--accent-1: #8b1c2e;
+	--accent-2: #1f3a8a;
+	--accent-3: #f6e6ea;
+
+	/* Surfaces */
+	--cell-1: #ffffff;
+	--cell-2: #f6f5f2;
+	--cell-3: #eef2f7;
+
+	/* Supporting tokens */
+	--background: var(--bg-1);
+	--foreground: var(--txt-1);
+	--surface: var(--bg-2);
+	--surface-border: #e6e3dd;
+	--on-accent-1: #ffffff;
+	--overlay: rgba(10, 11, 13, 0.42);
+	--shadow-elev-1: 0 26px 70px -40px rgba(15, 23, 42, 0.35);
+	--page-bg-gradient:
+		radial-gradient(900px 480px at 12% 8%, rgba(139, 28, 46, 0.08), transparent 60%),
+		radial-gradient(900px 520px at 88% 12%, rgba(31, 58, 138, 0.06), transparent 62%),
+		linear-gradient(to bottom, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0));
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--font-sans: var(--font-geist-sans);
+	--font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		color-scheme: dark;
+
+		--txt-1: #f2f3f5;
+		--txt-2: #c9cdd5;
+		--txt-3: #8a93a3;
+
+		--bg-1: #0b0c0f;
+		--bg-2: #101217;
+		--bg-3: #151826;
+
+		--accent-1: #d24a5a;
+		--accent-2: #4f7cff;
+		--accent-3: #241316;
+
+		--cell-1: #101217;
+		--cell-2: #131622;
+		--cell-3: #171c2a;
+
+		--background: var(--bg-1);
+		--foreground: var(--txt-1);
+		--surface: var(--bg-2);
+		--surface-border: #232836;
+		--on-accent-1: #ffffff;
+		--overlay: rgba(0, 0, 0, 0.7);
+		--shadow-elev-1: 0 26px 70px -40px rgba(0, 0, 0, 0.65);
+		--page-bg-gradient:
+			radial-gradient(900px 480px at 12% 8%, rgba(210, 74, 90, 0.12), transparent 60%),
+			radial-gradient(900px 520px at 88% 12%, rgba(79, 124, 255, 0.1), transparent 62%),
+			linear-gradient(to bottom, rgba(16, 18, 23, 0.75), rgba(11, 12, 15, 0));
+	}
+}
+
+.theme-light {
+	color-scheme: light;
+	--txt-1: #0f1115;
+	--txt-2: #2a2f37;
+	--txt-3: #6b7280;
+	--bg-1: #f7f6f4;
+	--bg-2: #ffffff;
+	--bg-3: #f0efec;
+	--accent-1: #8b1c2e;
+	--accent-2: #1f3a8a;
+	--accent-3: #f6e6ea;
+	--cell-1: #ffffff;
+	--cell-2: #f6f5f2;
+	--cell-3: #eef2f7;
+	--background: var(--bg-1);
+	--foreground: var(--txt-1);
+	--surface: var(--bg-2);
+	--surface-border: #e6e3dd;
+	--on-accent-1: #ffffff;
+	--page-bg-gradient:
+		radial-gradient(900px 480px at 12% 8%, rgba(139, 28, 46, 0.08), transparent 60%),
+		radial-gradient(900px 520px at 88% 12%, rgba(31, 58, 138, 0.06), transparent 62%),
+		linear-gradient(to bottom, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0));
+}
+
+.theme-dark {
+	color-scheme: dark;
+	--txt-1: #f2f3f5;
+	--txt-2: #c9cdd5;
+	--txt-3: #8a93a3;
+	--bg-1: #0b0c0f;
+	--bg-2: #101217;
+	--bg-3: #151826;
+	--accent-1: #d24a5a;
+	--accent-2: #4f7cff;
+	--accent-3: #241316;
+	--cell-1: #101217;
+	--cell-2: #131622;
+	--cell-3: #171c2a;
+	--background: var(--bg-1);
+	--foreground: var(--txt-1);
+	--surface: var(--bg-2);
+	--surface-border: #232836;
+	--on-accent-1: #ffffff;
+	--page-bg-gradient:
+		radial-gradient(900px 480px at 12% 8%, rgba(210, 74, 90, 0.12), transparent 60%),
+		radial-gradient(900px 520px at 88% 12%, rgba(79, 124, 255, 0.1), transparent 62%),
+		linear-gradient(to bottom, rgba(16, 18, 23, 0.75), rgba(11, 12, 15, 0));
+}
+
+.theme-surface {
+	background-color: var(--surface) !important;
+	border-color: var(--surface-border) !important;
+	color: var(--foreground);
+}
+
+/* Boost contrast for common text utility colors in dark mode */
+.theme-dark .text-slate-600 {
+	color: #d3ddf3 !important;
+}
+.theme-dark .text-slate-500 {
+	color: #c4cee6 !important;
+}
+.theme-dark .text-slate-400 {
+	color: #b3beda !important;
+}
+.theme-dark .text-slate-900 {
+	color: #e8edf7 !important;
+}
+
+body {
+	background: var(--background);
+	color: var(--foreground);
+	font-family: Arial, Helvetica, sans-serif;
+	transition: background-color 150ms ease, color 150ms ease;
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+	accent-color: var(--accent-1);
+}
+
+/* Prevent iOS Safari focus-zoom on form fields */
+@supports (-webkit-touch-callout: none) {
+	@media (max-width: 1024px) {
+		input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+		textarea,
+		select {
+			font-size: 16px !important;
+		}
+	}
+}

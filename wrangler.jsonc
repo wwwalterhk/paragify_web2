@@ -1,0 +1,95 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "paragify",
+	"main": ".open-next/worker.js",
+	"compatibility_date": "2025-12-01",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"r2_buckets": [
+		{
+			"binding": "R2",
+			"bucket_name": "paragify-cdn",
+			"preview_bucket_name": "paragify-cdn",
+			"remote": true
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_id": "f0a40025-216e-490b-b8de-6cf29c3b2175",
+			"remote": true
+		}
+	],
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".open-next/assets"
+	},
+	"images": {
+		// Enable image optimization
+		// see https://opennext.js.org/cloudflare/howtos/image
+		"binding": "IMAGES"
+	},
+	"services": [
+		{
+			// Self-reference service binding, the service name must match the worker name
+			// see https://opennext.js.org/cloudflare/caching
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "paragify"
+		}
+	],
+	"observability": {
+		"enabled": true
+	},
+	"vars": {
+		"NEXTJS_ENV": "production",
+		"NEXTAUTH_URL": "https://paragify.com",
+		"OPENAI_BASE_URL": "https://api.openai.com/v1",
+		"OPENAI_BATCH_MODEL": "gpt-5.2",
+		"RESEND_FROM_EMAIL": "admin@paragify.com",
+		"GOOGLE_CLIENT_ID": "279505539558-5r8qacdlg58mic7b3s8p1i438ihu75ao.apps.googleusercontent.com",
+		"GOOGLE_CLIENT_ID_ANDROID": "1013944364412-taogifim1g8jn21pcpq886q2aa691usg.apps.googleusercontent.com",
+		"GOOGLE_CLIENT_ID_IOS": "279505539558-t14aj6i7vdr4hgkpb8s12o63r20tanin.apps.googleusercontent.com",
+		"APPLE_CLIENT_ID": "com.paragify.website",
+		"APPLE_CLIENT_ID_IOS": "app.logplus.paragify",
+		"APPLE_CLIENT_ID_ANDROID": "app.logplus.paragify",
+		"APPLE_KEY_ID": "F5Z5WZNMJ8",
+		"APPLE_TEAM_ID": "89YQ68UNXT",
+		"APNS_USE_SANDBOX": "true",
+		"NEXT_PUBLIC_TURNSTILE_SITE_KEY": "0x4AAAAAACi4crFSvjiYhWN_",
+		"NEXT_PUBLIC_BYPASS_TURNSTILE": 0
+	},
+	"routes": [
+		{
+			"pattern": "paragify.com",
+			"custom_domain": true
+		}
+	]
+	/**
+	 * Smart Placement
+	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+	 */
+	// "placement": {  "mode": "smart" }
+	/**
+	 * Bindings
+	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
+	 * databases, object storage, AI inference, real-time communication and more.
+	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+	 */
+	/**
+	 * Environment Variables
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 * Note: Use secrets to store sensitive data.
+	 * https://developers.cloudflare.com/workers/configuration/secrets/
+	 */
+	// "vars": {  "MY_VARIABLE": "production_value" }
+}
