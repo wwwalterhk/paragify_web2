@@ -1,0 +1,73 @@
+Use the following writing style to create the content and hashtags:
+
+Design the content and hashtags in a fast, cheeky, highly opinionated style that uses:
+- punchy short sentences
+- vivid metaphors
+- sharp humor
+
+Goal:
+Turn expert judgment into entertaining, story-driven commentary writing
+(similar vibe to Top Gear style, but do not mention Top Gear, and do not mention cars if not car-related).
+
+Language/Tone:
+- Traditional Chinese (Hong Kong vibe)
+- Use original writing
+- Hashtags must be in Chinese
+
+Structural Guidance:
+
+* Open with tension, surprise, or contradiction
+* Reveal ideas in layers instead of dumping everything at once
+* Use mini cliffhangers between paragraphs
+* Let the tone flirt with drama, but stay controlled
+* End with a line that feels like a mic drop or a knowing smirk
+
+Output Requirement:
+
+* within 8 paragraphs 
+* Write original content only
+* ensure enough hashtags for content search
+* for any image description, the description content must match the image content
+* Include suitable Chinese hashtags in the content or at the end
+* Hashtags should feel catchy, topical, and emotionally sticky
+
+
+sample:
+回帶到2001年，本田嫌舊款B系同H系引擎開始老態龍鍾，於是霸氣地撕爛圖紙重新設計。結果？一副鋁製缸體加上i-VTEC大法的終極殺器誕生。這套系統就好似給引擎灌了雙倍濃縮咖啡：低轉時乖過隻貓，高轉一到，VTEC介入，整部車突然黐線地狂奔。轉數錶指針就像索了K一樣直指紅區，那種連綿不斷的推背感根本是合法毒藥。 #VTEC就係正 #紅區見
+
+落到賽道，K系列引擎簡直是不講武德。在那些長達幾個小時的耐力賽裏面，當對手們的引擎已經熱到出煙、要大修特修時，本田車隊的技師還在悠哉游哉地飲緊維他奶。那個鋁合金剛性缸體硬過香港打工仔的命水，點操都唔爆。耐用？
+
+硬過打工仔條命
+落到賽道，K系列引擎簡直是不講武德。在那些長達幾個小時的耐力賽裏面，當對手們的引擎已經熱到出煙、要大修特修時，本田車隊的技師還在悠哉游哉地飲緊維他奶。那個鋁合金剛性缸體硬過香港打工仔的命水，點操都唔爆。耐用？它簡直是為變態級折磨而生的，踩足全季都不用換偈，對手見到都眼淚在心裡流。 #耐操神機 #踩極唔爛
+引擎界的「小強」
+
+當全世界車廠都在為電動車大聲疾呼，本田卻像個固執的阿伯，死抱住汽油引擎不放。但這位阿伯手上的武器，可是橫跨四分一世紀的「不死神駒」——K系列引擎。從千禧年鬥到現在，這副機器不單止未入土為安，仲愈戰愈勇。它就像引擎界的「小強」，打不死兼且跑得快，成為改裝界的最愛。 #本田魂不死 #萬轉狂魔
+
+return in this json format:
+{
+  "title": "super very short title (stictly short, limited space)",
+  "eyeblow": "very short",
+  "subtitle": "super very short (stictly short, limited space)",
+  "footer_line": "very short",
+  "heading_hashtags": "3 main hashtags",
+  "heading_image_1": {
+    "url": "main heading image, prefer higher resolution. for cropping, not lower than 50% size",
+    "heading": "long heading for the passage",
+    "desc": "start of the passage with the heading image, follow by paragraphs"
+  },
+  "paragraphs": [
+    {
+      "type": "p|image",
+      "heading": "heading if any (optional)",
+      "url": "url for image",
+      "content": "content with or without a image",
+      "background_color": "suggested color fit for the passage, e.g. #000000",
+      "heading_color": "e.g. #000000",
+      "content_color": "e.g. #000000"
+    }
+  ]
+}
+
+
+content:
+{"title":"G-SHOCK如何做出堅固耐摔的手錶","url":"https://world-wrist-watch.com/zh-Hant/Article/12036","content":"手錶這種隨身物件因為戴在手上的關係，因此有時候不小心難免會敲到、撞到，這些由外部造成的衝擊力道可能會對手錶內部零件造成影響，因此歷史上各錶廠都在專心研究的一項課題就是要提升手錶的抗震效果與耐衝擊性。現在多數的手錶都具備一定的抗震性，不過綜觀各式機械錶、石英錶，要說到耐衝、耐撞、抗震、耐操等特質，應該很少有手錶可以和卡西歐的G-SHOCK分庭抗禮。問題來了，G-SHOCK是怎麼做出不怕震盪的手錶呢？\nhttps://world-wrist-watch.com/uploads/article/1/2/12036/1640831804230.jpg\n第一款G-SHOCK手錶在研發過程中奠基於「彈跳中的橡皮球內部不會傳遞衝擊力」這樣的概念，因此設計出錶殼內部採用橡膠零件以支撐機芯的結構來達到替機芯緩衝的效果，品牌的作法是讓包覆機芯的內殼與外部錶殼間留下空隙，中間以緩衝材料分別保護機芯中的晶體震盪器及其他重要零件，一旦當手錶受到外部強烈衝擊時，外殼與內殼間的緩衝材料會變形來卸除撞擊力道，從而保護機芯不受影響。\nhttps://world-wrist-watch.com/uploads/article/1/2/12036/1640831804231.jpg\n▲G-SHOCK手錶的抗震結構理念來自「彈跳中的橡皮球內部不會傳遞衝擊力」，由此延伸出品牌引以為傲的抗震技術。\n另外我們也會注意到G-SHOCK手錶外觀的樹脂零件都做得很有立體層次，這不單只是營造手錶外觀的霸氣感，實際上這些立體輪廓與邊框的設計最主要的用意是要吸收衝擊力，藉由這些突出的錶殼輪廓可以保護手錶周圍與機芯相連的按把，也因為錶殼高於鏡面，因此當手錶正面朝下掉落時，錶殼也可以負起保護鏡面的作用。\nhttps://world-wrist-watch.com/uploads/article/1/2/12036/1640831804232.jpg\n▲G-SHOCK手錶的抗震結構關鍵在於內殼與外殼之間設有緩衝材質。\n還有一點是品牌手錶的錶帶與錶殼的連接點通常是呈一種弧形固定狀態，這樣雖然把錶脫下來要放置時比較不好收納，但它卻能有效達到避震的效果，因為如果手錶背面朝下掉落，那麼這個弧形狀態就可以確保錶背不會直接墜地受到撞擊。\nhttps://world-wrist-watch.com/uploads/article/1/2/12036/1640831804233.jpg\n▲Triple G Resist技術採用名為αGEL®的科技材質，可以有效吸震並大幅降低手錶因劇烈震動造成的損壞情形。\n目前G-SHOCK最頂級的耐衝擊構造已經發展到所謂的Triple G Resist技術，這種現代錶殼構造除了抗衝擊性佳之外，還提高了抗離心力和抗震效果。其中有關抗震動構造中，G-SHOCK採用名為αGEL®的絕緣體包覆機芯周圍，這種材質為以矽膠為主要原料製成的的軟凝膠狀材料，可以有效吸震並大幅降低手錶因劇烈震動造成的損壞情形。根據G-SHOCK的實測，Triple G Resist技術在抗離心力的測試中可以抵抗15G的離心重力，而在抗震動測試中則是根據汽車零件震動試驗方法與雙輪車車載設備要求的等級來測試，證明手錶能抵抗震動加速度達20G的力道而安然無恙。\nhttps://world-wrist-watch.com/uploads/article/1/2/12036/1640831804234.jpg\n▲通常手錶如果掉到地上，錶主都會驚慌失措擔心手錶就此故障，不過G-SHOCK手錶倒是可以讓人很放心的把手錶拿起來重新戴上就好。\n回到文章一開始的問題，先不論G-SHOCK目前頂級的Triple G Resist技術，一般G-SHOCK手錶能夠做到不怕震盪的超堅固品質，主要關鍵就是在於機芯有內殼包覆並與外殼之間留下空隙，空隙中又還有橡膠材質作為緩衝，這樣就能夠大大降低手錶受衝撞時的影響程度。","images":[{"url":"https://world-wrist-watch.com/uploads/article/1/2/12036/catalogImg12036.jpg","desc":"G-SHOCK如何做出堅固耐摔的手錶"},{"url":"https://world-wrist-watch.com/uploads/article/1/2/12036/1640831804230.jpg","desc":""},{"url":"https://world-wrist-watch.com/uploads/article/1/2/12036/1640831804231.jpg","desc":"G-SHOCK手錶的抗震結構理念來自「彈跳中的橡皮球內部不會傳遞衝擊力」，由此延伸出品牌引以為傲的抗震技術。"},{"url":"https://world-wrist-watch.com/uploads/article/1/2/12036/1640831804232.jpg","desc":"G-SHOCK手錶的抗震結構關鍵在於內殼與外殼之間設有緩衝材質。"},{"url":"https://world-wrist-watch.com/uploads/article/1/2/12036/1640831804233.jpg","desc":"Triple G Resist技術採用名為αGEL®的科技材質，可以有效吸震並大幅降低手錶因劇烈震動造成的損壞情形。"},{"url":"https://world-wrist-watch.com/uploads/article/1/2/12036/1640831804234.jpg","desc":"通常手錶如果掉到地上，錶主都會驚慌失措擔心手錶就此故障，不過G-SHOCK手錶倒是可以讓人很放心的把手錶拿起來重新戴上就好。"}]}
