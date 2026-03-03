@@ -31,6 +31,13 @@ type PreparePostRow = {
 	author_handle: string | null;
 };
 
+const PREPARE_POST_ID_CNT_SQL = `(
+  SELECT COUNT(1)
+  FROM posts p2
+  WHERE p2.prepare_post_id = p.post_id
+    AND p2.visibility = 'public'
+)`;
+
 function readString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -39,6 +46,13 @@ function toPositiveInt(value: string | null, fallback: number): number {
 	if (!value) return fallback;
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+	return Math.floor(parsed);
+}
+
+function toOptionalNonNegativeInt(value: string | null): number | null {
+	if (value === null) return null;
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return null;
 	return Math.floor(parsed);
 }
 
@@ -121,16 +135,30 @@ export async function GET(request: Request) {
 		const page = toPositiveInt(requestUrl.searchParams.get("page"), 1);
 		const limit = Math.min(toPositiveInt(requestUrl.searchParams.get("limit"), 20), 100);
 		const offset = (page - 1) * limit;
+		const preparePostIdCntRaw = readString(requestUrl.searchParams.get("prepare_post_id_cnt"));
+		const preparePostIdCnt = toOptionalNonNegativeInt(preparePostIdCntRaw);
+		if (preparePostIdCntRaw !== null && preparePostIdCnt === null) {
+			return NextResponse.json({ ok: false, message: "prepare_post_id_cnt must be a non-negative integer" }, { status: 400 });
+		}
 
-		const whereClause = `
+		const whereConditions = [
+			`
       p.prepare_status = 'prepare_content_batch_done'
       AND p.visibility = 'prepare'
       AND p.prepare_content IS NOT NULL
       AND trim(p.prepare_content) <> ''
-    `;
+    `,
+		];
+		const whereBindings: Array<number> = [];
+		if (preparePostIdCnt !== null) {
+			whereConditions.push(`AND ${PREPARE_POST_ID_CNT_SQL} = ?`);
+			whereBindings.push(preparePostIdCnt);
+		}
+		const whereClause = whereConditions.join("\n");
 
 		const totalRow = await db
 			.prepare(`SELECT COUNT(1) AS total FROM posts p WHERE ${whereClause}`)
+			.bind(...whereBindings)
 			.first<{ total: number }>();
 		const total = totalRow?.total ?? 0;
 
@@ -140,12 +168,7 @@ export async function GET(request: Request) {
             p.post_id,
             p.user_pk,
             p.post_slug,
-            (
-              SELECT COUNT(1)
-              FROM posts p2
-              WHERE p2.prepare_post_id = p.post_id
-                AND p2.visibility = 'public'
-            ) AS prepare_post_id_cnt,
+            ${PREPARE_POST_ID_CNT_SQL} AS prepare_post_id_cnt,
             p.title,
             p.prepare_status,
             p.visibility,
@@ -163,7 +186,7 @@ export async function GET(request: Request) {
           ORDER BY p.updated_at DESC, p.post_id DESC
           LIMIT ? OFFSET ?`,
 			)
-			.bind(limit, offset)
+			.bind(...whereBindings, limit, offset)
 			.all<PreparePostRow>();
 
 		const posts = postsResult.results ?? [];
@@ -180,6 +203,9 @@ export async function GET(request: Request) {
 				total_pages: totalPages,
 				has_more: hasMore,
 				next_page: hasMore ? page + 1 : null,
+			},
+			filters: {
+				prepare_post_id_cnt: preparePostIdCnt,
 			},
 		});
 	} catch (error) {

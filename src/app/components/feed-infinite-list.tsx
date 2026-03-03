@@ -13,7 +13,7 @@ import {
 	HeartIcon as HeartSolidIcon,
 } from "@heroicons/react/24/solid";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FeedCursor, FeedPost } from "@/lib/feed-posts";
 import {
 	formatFeedCount,
@@ -76,6 +76,36 @@ function getFirstPostImageUrl(post: FeedPost | undefined): string | null {
 	return firstImage ? firstImage.transformed_image_url || firstImage.source_url : null;
 }
 
+const IMAGE_PRELOAD_PRIORITY = {
+	SAME_PAGING_FIRST_IMAGE: 1,
+	VIEWPORT_POST_IMAGES: 2,
+} as const;
+
+const IMAGE_PRELOAD_CONCURRENCY = 2;
+const SCROLL_STOP_DELAY_MS = 170;
+const FEED_LOAD_MORE_ROOT_MARGIN = "2200px 0px 2200px 0px";
+
+function getPagingPostIndexes(posts: FeedPost[], focusPostId: number | null, pageSize: number): number[] {
+	if (posts.length === 0) {
+		return [];
+	}
+
+	const normalizedPageSize = Math.max(1, Math.floor(pageSize));
+	let focusPostIndex =
+		focusPostId === null ? -1 : posts.findIndex((post) => post.post_id === focusPostId);
+	if (focusPostIndex < 0) {
+		focusPostIndex = 0;
+	}
+
+	const pageStartIndex = Math.floor(focusPostIndex / normalizedPageSize) * normalizedPageSize;
+	const pageEndIndex = Math.min(posts.length, pageStartIndex + normalizedPageSize);
+	const pagingIndexes: number[] = [];
+	for (let index = pageStartIndex; index < pageEndIndex; index += 1) {
+		pagingIndexes.push(index);
+	}
+	return pagingIndexes;
+}
+
 function getCursorFromPosts(posts: FeedPost[]): FeedCursor | null {
 	const lastPost = posts[posts.length - 1];
 	if (!lastPost || !lastPost.created_at) {
@@ -108,11 +138,18 @@ export function FeedInfiniteList({
 	const [pendingSaveIds, setPendingSaveIds] = useState<Set<number>>(() => new Set());
 	const [pendingPmIds, setPendingPmIds] = useState<Set<number>>(() => new Set());
 	const [visiblePostIds, setVisiblePostIds] = useState<number[]>([]);
+	const [stoppedPostId, setStoppedPostId] = useState<number | null>(null);
+	const [scrollIdleSignal, setScrollIdleSignal] = useState(0);
 	const postsRef = useRef(posts);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 	const articleElementsRef = useRef<Map<number, HTMLElement>>(new Map());
 	const visiblePostIdsRef = useRef<Set<number>>(new Set());
 	const preloadedImageUrlsRef = useRef<Set<string>>(new Set());
+	const queuedImageUrlsRef = useRef<Set<string>>(new Set());
+	const preloadQueueRef = useRef<Array<{ url: string; priority: number; sequence: number }>>([]);
+	const preloadInFlightCountRef = useRef(0);
+	const preloadSequenceRef = useRef(0);
+	const scrollStopTimerRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		postsRef.current = posts;
@@ -125,7 +162,35 @@ export function FeedInfiniteList({
 		setActiveTag(initialTag ?? null);
 		setActiveUserId(initialUserId ?? null);
 		setLoadError(null);
+		setStoppedPostId(null);
+		setScrollIdleSignal(0);
+		visiblePostIdsRef.current.clear();
+		setVisiblePostIds([]);
+		preloadQueueRef.current = [];
+		queuedImageUrlsRef.current.clear();
 	}, [initialCursor, initialHasMore, initialPosts, initialTag, initialUserId]);
+
+	const pagingAnchorPostId = stoppedPostId ?? visiblePostIds[0] ?? posts[0]?.post_id ?? null;
+	const currentPagingPostIndexes = useMemo(
+		() => getPagingPostIndexes(posts, pagingAnchorPostId, pageSize),
+		[pageSize, pagingAnchorPostId, posts],
+	);
+
+	const currentPagingPostIdSet = useMemo(() => {
+		const ids = new Set<number>();
+		for (const index of currentPagingPostIndexes) {
+			const postId = posts[index]?.post_id;
+			if (typeof postId === "number") {
+				ids.add(postId);
+			}
+		}
+		return ids;
+	}, [currentPagingPostIndexes, posts]);
+
+	const visiblePostIdSet = useMemo(
+		() => new Set<number>(visiblePostIds),
+		[visiblePostIds],
+	);
 
 	useEffect(() => {
 		const elements = Array.from(articleElementsRef.current.values());
@@ -182,40 +247,184 @@ export function FeedInfiniteList({
 		};
 	}, [posts]);
 
+	const processImagePreloadQueue = useCallback(() => {
+		if (typeof window === "undefined") return;
+
+		while (
+			preloadInFlightCountRef.current < IMAGE_PRELOAD_CONCURRENCY &&
+			preloadQueueRef.current.length > 0
+		) {
+			preloadQueueRef.current.sort((a, b) =>
+				a.priority === b.priority ? a.sequence - b.sequence : a.priority - b.priority,
+			);
+			const nextItem = preloadQueueRef.current.shift();
+			if (!nextItem) break;
+
+			queuedImageUrlsRef.current.delete(nextItem.url);
+			if (preloadedImageUrlsRef.current.has(nextItem.url)) continue;
+
+			preloadedImageUrlsRef.current.add(nextItem.url);
+			preloadInFlightCountRef.current += 1;
+
+			const preloadImage = new window.Image();
+			preloadImage.decoding = "async";
+			const finalize = () => {
+				preloadInFlightCountRef.current = Math.max(
+					0,
+					preloadInFlightCountRef.current - 1,
+				);
+				processImagePreloadQueue();
+			};
+			preloadImage.onload = finalize;
+			preloadImage.onerror = finalize;
+			preloadImage.src = nextItem.url;
+		}
+	}, []);
+
+	const enqueueImagePreload = useCallback(
+		(url: string | null, priority: number) => {
+			const normalizedUrl = url?.trim() || null;
+			if (!normalizedUrl) return;
+			if (preloadedImageUrlsRef.current.has(normalizedUrl)) return;
+			if (queuedImageUrlsRef.current.has(normalizedUrl)) return;
+
+			queuedImageUrlsRef.current.add(normalizedUrl);
+			preloadQueueRef.current.push({
+				url: normalizedUrl,
+				priority,
+				sequence: preloadSequenceRef.current++,
+			});
+			processImagePreloadQueue();
+		},
+		[processImagePreloadQueue],
+	);
+
+	const enqueueImagePreloads = useCallback(
+		(urls: string[], priority: number) => {
+			for (const url of urls) {
+				enqueueImagePreload(url, priority);
+			}
+		},
+		[enqueueImagePreload],
+	);
+
+	const resolveViewportFocusPostId = useCallback((): number | null => {
+		if (typeof window === "undefined") return null;
+
+		const candidatePostIds =
+			visiblePostIdsRef.current.size > 0
+				? Array.from(visiblePostIdsRef.current)
+				: postsRef.current.map((post) => post.post_id);
+		if (candidatePostIds.length === 0) {
+			return null;
+		}
+
+		const viewportCenterY = window.innerHeight / 2;
+		let bestPostId: number | null = null;
+		let shortestDistance = Number.POSITIVE_INFINITY;
+
+		for (const postId of candidatePostIds) {
+			const articleElement = articleElementsRef.current.get(postId);
+			if (!articleElement) continue;
+
+			const rect = articleElement.getBoundingClientRect();
+			const articleCenterY = rect.top + rect.height / 2;
+			const distance = Math.abs(articleCenterY - viewportCenterY);
+			if (distance >= shortestDistance) continue;
+
+			shortestDistance = distance;
+			bestPostId = postId;
+		}
+
+		return bestPostId ?? postsRef.current[0]?.post_id ?? null;
+	}, []);
+
 	useEffect(() => {
-		if (typeof window === "undefined" || visiblePostIds.length === 0 || posts.length === 0) {
+		if (typeof window === "undefined") {
 			return;
 		}
 
-		const postIndexById = new Map<number, number>();
-		for (let index = 0; index < posts.length; index += 1) {
-			postIndexById.set(posts[index].post_id, index);
-		}
-
-		const urlsToPreload = new Set<string>();
-		for (const visiblePostId of visiblePostIds) {
-			const index = postIndexById.get(visiblePostId);
-			if (index === undefined) continue;
-
-			const visiblePost = posts[index];
-			for (const url of getPostImageUrls(visiblePost)) {
-				urlsToPreload.add(url);
+		const scheduleStopCheck = () => {
+			if (scrollStopTimerRef.current !== null) {
+				window.clearTimeout(scrollStopTimerRef.current);
 			}
+			scrollStopTimerRef.current = window.setTimeout(() => {
+				const focusedPostId = resolveViewportFocusPostId();
+				setStoppedPostId((current) =>
+					current === focusedPostId ? current : focusedPostId,
+				);
+				setScrollIdleSignal((current) => current + 1);
+			}, SCROLL_STOP_DELAY_MS);
+		};
 
-			const nextPostFirstImageUrl = getFirstPostImageUrl(posts[index + 1]);
-			if (nextPostFirstImageUrl) {
-				urlsToPreload.add(nextPostFirstImageUrl);
+		const handleScroll = () => {
+			scheduleStopCheck();
+		};
+		const handleResize = () => {
+			scheduleStopCheck();
+		};
+
+		scheduleStopCheck();
+		window.addEventListener("scroll", handleScroll, { passive: true });
+		window.addEventListener("resize", handleResize);
+
+		return () => {
+			window.removeEventListener("scroll", handleScroll);
+			window.removeEventListener("resize", handleResize);
+			if (scrollStopTimerRef.current !== null) {
+				window.clearTimeout(scrollStopTimerRef.current);
+				scrollStopTimerRef.current = null;
 			}
+		};
+	}, [posts, resolveViewportFocusPostId]);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || posts.length === 0 || scrollIdleSignal === 0) {
+			return;
 		}
 
-		for (const url of urlsToPreload) {
-			if (preloadedImageUrlsRef.current.has(url)) continue;
-			preloadedImageUrlsRef.current.add(url);
-			const image = new window.Image();
-			image.decoding = "async";
-			image.src = url;
+		for (const index of currentPagingPostIndexes) {
+			enqueueImagePreload(
+				getFirstPostImageUrl(posts[index]),
+				IMAGE_PRELOAD_PRIORITY.SAME_PAGING_FIRST_IMAGE,
+			);
 		}
-	}, [posts, visiblePostIds]);
+
+		const postById = new Map<number, FeedPost>();
+		for (const post of posts) {
+			postById.set(post.post_id, post);
+		}
+
+		const visiblePostIdsAtStop = Array.from(visiblePostIdsRef.current);
+		if (visiblePostIdsAtStop.length === 0) {
+			const fallbackPost =
+				pagingAnchorPostId === null ? posts[0] : postById.get(pagingAnchorPostId) ?? posts[0];
+			if (!fallbackPost) {
+				return;
+			}
+			enqueueImagePreloads(
+				getPostImageUrls(fallbackPost),
+				IMAGE_PRELOAD_PRIORITY.VIEWPORT_POST_IMAGES,
+			);
+			return;
+		}
+
+		for (const visiblePostId of visiblePostIdsAtStop) {
+			const visiblePost = postById.get(visiblePostId);
+			if (!visiblePost) continue;
+			enqueueImagePreloads(
+				getPostImageUrls(visiblePost),
+				IMAGE_PRELOAD_PRIORITY.VIEWPORT_POST_IMAGES,
+			);
+		}
+	}, [
+		currentPagingPostIndexes,
+		enqueueImagePreload,
+		enqueueImagePreloads,
+		pagingAnchorPostId,
+		posts,
+		scrollIdleSignal,
+	]);
 
 	const updatePostById = useCallback((postId: number, updater: (post: FeedPost) => FeedPost) => {
 		setPosts((current) =>
@@ -522,7 +731,7 @@ export function FeedInfiniteList({
 			},
 			{
 				root: null,
-				rootMargin: "1400px 0px 1400px 0px",
+				rootMargin: FEED_LOAD_MORE_ROOT_MARGIN,
 				threshold: 0,
 			},
 		);
@@ -560,6 +769,11 @@ export function FeedInfiniteList({
 					const authorNameLabel = authorName || (authorId ? `@${authorId}` : handle);
 					const authorIdLabel = authorId ? `@${authorId}` : null;
 					const shouldShowSecondaryIdLine = Boolean(authorName && authorId);
+					const firstImageFetchPriority: "high" | "auto" | "low" = currentPagingPostIdSet.has(post.post_id)
+						? "high"
+						: visiblePostIdSet.has(post.post_id)
+							? "auto"
+							: "low";
 					const authorPostsAriaLabel = authorIdLabel
 						? `Open ${authorName ? `${authorName} (${authorIdLabel})` : authorIdLabel} posts`
 						: `Open ${authorNameLabel} posts`;
@@ -651,6 +865,7 @@ export function FeedInfiniteList({
 								pageScale={feedPageScale}
 								pageCount={Math.max(post.page_count, post.media_items.length)}
 								mediaItems={post.media_items}
+								firstImageFetchPriority={firstImageFetchPriority}
 							/>
 
 								<div className="space-y-3 px-4 pb-4 pt-3">

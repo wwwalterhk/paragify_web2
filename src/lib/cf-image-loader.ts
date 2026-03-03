@@ -12,6 +12,6 @@ export default function cfImageLoader({ src, width, quality }: ImageLoaderProps)
 		? src
 		: `${PRIMARY_CDN_ORIGIN}${src.startsWith("/") ? "" : "/"}${src}`;
 	const stripped = absolute.replace(CDN_HOST_RE, "");
-	const q = quality ?? 75;
+	const q = quality ?? 70;
 	return `${PRIMARY_CDN_ORIGIN}/cdn-cgi/image/width=${width},quality=${q},format=auto/${stripped}`;
 }

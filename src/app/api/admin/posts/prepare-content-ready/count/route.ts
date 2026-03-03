@@ -11,8 +11,22 @@ type AdminUserRow = {
 	role: string | null;
 };
 
+const PREPARE_POST_ID_CNT_SQL = `(
+  SELECT COUNT(1)
+  FROM posts p2
+  WHERE p2.prepare_post_id = p.post_id
+    AND p2.visibility = 'public'
+)`;
+
 function readString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function toOptionalNonNegativeInt(value: string | null): number | null {
+	if (value === null) return null;
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return null;
+	return Math.floor(parsed);
 }
 
 async function resolveEmail(req: Request, env: DbBindings, db: D1Database): Promise<string | null> {
@@ -90,15 +104,33 @@ export async function GET(request: Request) {
 			return NextResponse.json({ ok: false, message: "Forbidden" }, { status: 403 });
 		}
 
+		const requestUrl = new URL(request.url);
+		const preparePostIdCntRaw = readString(requestUrl.searchParams.get("prepare_post_id_cnt"));
+		const preparePostIdCnt = toOptionalNonNegativeInt(preparePostIdCntRaw);
+		if (preparePostIdCntRaw !== null && preparePostIdCnt === null) {
+			return NextResponse.json({ ok: false, message: "prepare_post_id_cnt must be a non-negative integer" }, { status: 400 });
+		}
+
+		const whereConditions = [
+			`p.prepare_status = 'prepare_content_batch_done'`,
+			`p.visibility = 'prepare'`,
+			`p.prepare_content IS NOT NULL`,
+			`trim(p.prepare_content) <> ''`,
+		];
+		const whereBindings: Array<number> = [];
+		if (preparePostIdCnt !== null) {
+			whereConditions.push(`${PREPARE_POST_ID_CNT_SQL} = ?`);
+			whereBindings.push(preparePostIdCnt);
+		}
+		const whereClause = whereConditions.join("\n            AND ");
+
 		const totalRow = await db
 			.prepare(
 				`SELECT COUNT(1) AS total
            FROM posts p
-          WHERE p.prepare_status = 'prepare_content_batch_done'
-            AND p.visibility = 'prepare'
-            AND p.prepare_content IS NOT NULL
-            AND trim(p.prepare_content) <> ''`,
+          WHERE ${whereClause}`,
 			)
+			.bind(...whereBindings)
 			.first<{ total: number }>();
 
 		return NextResponse.json({
@@ -108,6 +140,7 @@ export async function GET(request: Request) {
 				prepare_status: "prepare_content_batch_done",
 				visibility: "prepare",
 				require_prepare_content: true,
+				prepare_post_id_cnt: preparePostIdCnt,
 			},
 		});
 	} catch (error) {

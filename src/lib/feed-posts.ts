@@ -77,12 +77,7 @@ export type LoadFeedPostsResult = {
 };
 
 const FEED_IMAGE_WIDTH = 1080;
-const FEED_PAGE_SCALE_DIMENSIONS: Record<FeedPageScale, { width: number; height: number }> = {
-	"4:5": { width: 4, height: 5 },
-	"3:4": { width: 3, height: 4 },
-	"1:1": { width: 1, height: 1 },
-};
-const IMAGE_CDN_ORIGINS = ["https://cdn.paragify.com", "https://cdn2.paragify.com"] as const;
+const IMAGE_CDN_ORIGINS = ["https://cdn.paragify.com", "https://cdn2.paragify.com", "https://cdn3.paragify.com"] as const;
 const PRIMARY_CDN_ORIGIN = IMAGE_CDN_ORIGINS[0];
 const IMAGE_CDN_HOSTNAMES = new Set(IMAGE_CDN_ORIGINS.map((origin) => new URL(origin).hostname));
 const compactNumberFormatter = new Intl.NumberFormat("en-US", {
@@ -181,10 +176,8 @@ function getR2MediaKeyFromSources(mediaUrl: string | null, rawMediaUrl: string |
 	return null;
 }
 
-function getFeedImageTransformOptions(pageScale: FeedPageScale): string {
-	const dimensions = FEED_PAGE_SCALE_DIMENSIONS[pageScale];
-	const imageHeight = Math.round((FEED_IMAGE_WIDTH * dimensions.height) / dimensions.width);
-	return `width=${FEED_IMAGE_WIDTH},height=${imageHeight},fit=cover,quality=85,format=auto`;
+function getFeedImageTransformOptions(_pageScale: FeedPageScale): string {
+	return `width=${FEED_IMAGE_WIDTH},quality=70,format=auto`;
 }
 
 function getCloudflareTransformedImageUrl(mediaKey: string | null, pageScale: FeedPageScale): string | null {
@@ -215,10 +208,11 @@ function buildFeedMediaItem(
 	}
 
 	const mediaTypeNormalized = toFeedMediaType(mediaType);
+	const cdnOrigin = selectImageCdnOrigin(mediaKey);
 	return {
 		page_num: pageNum,
 		media_type: mediaTypeNormalized,
-		source_url: `${PRIMARY_CDN_ORIGIN}/${mediaKey}`,
+		source_url: `${cdnOrigin}/${mediaKey}`,
 		transformed_image_url:
 			mediaTypeNormalized === "video"
 				? null

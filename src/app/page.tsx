@@ -4,13 +4,14 @@ import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import type { FeedCursor, FeedPost } from "@/lib/feed-posts";
-import { DEFAULT_FEED_PAGE_SIZE, loadFeedPosts } from "@/lib/feed-posts";
+import { loadFeedPosts } from "@/lib/feed-posts";
 import { FeedInfiniteList } from "./components/feed-infinite-list";
 
 export const dynamic = "force-dynamic";
 const SITE_NAME = "Paragify";
 const DEFAULT_SITE_URL = "http://localhost:3000";
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).replace(/\/+$/, "");
+const HOME_FEED_PAGE_SIZE = 6;
 
 type InitialFeedResult = {
 	posts: FeedPost[];
@@ -185,7 +186,7 @@ async function getInitialFeed(
 		}
 
 		const result = await loadFeedPosts(db, {
-			limit: DEFAULT_FEED_PAGE_SIZE,
+			limit: HOME_FEED_PAGE_SIZE,
 			viewerUserPk,
 			tag,
 			authorUserId,
@@ -262,7 +263,7 @@ export default async function Home({ searchParams }: HomePageProps) {
 		name: activeTag ? `Posts tagged #${activeTag}` : activeUserId ? `Posts by @${activeUserId}` : `${SITE_NAME} public feed`,
 		itemListOrder: "https://schema.org/ItemListOrderDescending",
 		numberOfItems: posts.length,
-		itemListElement: posts.slice(0, DEFAULT_FEED_PAGE_SIZE).map((post, index) => ({
+		itemListElement: posts.slice(0, HOME_FEED_PAGE_SIZE).map((post, index) => ({
 			"@type": "ListItem",
 			position: index + 1,
 			url: toAbsoluteUrl(`/post/zh/${encodeURIComponent(getPostSlugRef(post))}`),
@@ -333,7 +334,7 @@ export default async function Home({ searchParams }: HomePageProps) {
 					initialPosts={posts}
 					initialHasMore={hasMore}
 					initialCursor={nextCursor}
-					pageSize={DEFAULT_FEED_PAGE_SIZE}
+					pageSize={HOME_FEED_PAGE_SIZE}
 					initialTag={activeTag}
 					initialUserId={activeUserId}
 				/>
