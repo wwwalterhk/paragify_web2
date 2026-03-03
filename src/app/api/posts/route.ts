@@ -12,6 +12,7 @@ type PostRow = {
 	title: string | null;
 	model_name: string | null;
 	prepare_status: string | null;
+	batch_id: string | null;
 	prepare_url: string | null;
 	prepare_src: string | null;
 	prepare_plan: string | null;
@@ -55,6 +56,7 @@ type PostEditRow = {
 	custom_content: string | null;
 	title: string | null;
 	template_id: string | null;
+	batch_id: string | null;
 	visibility: string;
 	created_at: string | null;
 	updated_at: string | null;
@@ -108,6 +110,7 @@ type GeminiBatchUpdatePayload = {
 	action?: string | null;
 	post_id?: number | string | null;
 	prepare_status?: string | null;
+	batch_id?: string | null;
 	prepare_data?: unknown;
 	gemini_info?: unknown;
 };
@@ -169,6 +172,7 @@ type GeminiBatchUpdateResult =
 			prepareStatus: GeminiBatchPrepareStatus;
 			batchJobId: number;
 			batchItemId: number;
+			batchId: string | null;
 			geminiBatchId: string | null;
 	  }
 	| {
@@ -293,7 +297,7 @@ const GEMINI_BATCH_UPDATE_GEMINI_INFO_SPEC = {
 				[GEMINI_BATCH_PREPARE_STATUS_PREPARE_CONTENT_DONE]: GEMINI_BATCH_ITEM_PURPOSE_PREPARE_CONTENT,
 			},
 		},
-		required_for_batch_create: ["gemini_batch_id", "model_name"],
+		required_for_batch_create: ["batch_id (root) or gemini_batch_id", "model_name"],
 		recommended_for_batch_done: ["status"],
 		optional: [
 			"batch_job_id",
@@ -373,7 +377,7 @@ function sumBatchChanges(results: Array<{ meta?: { changes?: number } }>): numbe
 }
 
 const PREPARE_POSTS_QUERY_LEGACY = `SELECT p.post_id, p.user_pk, p.post_slug, p.brand_slug, p.locale, p.caption, p.sell_car, p.title, p.model_name,
-				        p.prepare_status, p.prepare_url, p.prepare_src, p.prepare_plan, p.prepare_mode, p.manu_year, p.miles_km, p.cylinder, p.price, p.template_id, p.cover_page, p.visibility,
+				        p.prepare_status, p.batch_id, p.prepare_url, p.prepare_src, p.prepare_plan, p.prepare_mode, p.manu_year, p.miles_km, p.cylinder, p.price, p.template_id, p.cover_page, p.visibility,
 				        p.like_count, p.comment_count, p.created_at, p.updated_at,
 				        u.name AS author_name, u.user_id AS author_handle, u.avatar_url AS author_avatar
 				   FROM posts p
@@ -382,7 +386,7 @@ const PREPARE_POSTS_QUERY_LEGACY = `SELECT p.post_id, p.user_pk, p.post_slug, p.
 				  ORDER BY p.created_at DESC`;
 
 const PREPARE_POSTS_QUERY_SCHEMA_V2 = `SELECT p.post_id, p.user_pk, p.post_slug, NULL AS brand_slug, p.locale, p.caption, p.sell AS sell_car, p.title, p.model_name,
-				        p.prepare_status, p.prepare_url, p.prepare_src, p.prepare_plan, p.prepare_mode, NULL AS manu_year, NULL AS miles_km, NULL AS cylinder, p.price, p.template_id, p.cover_page, p.visibility,
+				        p.prepare_status, p.batch_id, p.prepare_url, p.prepare_src, p.prepare_plan, p.prepare_mode, NULL AS manu_year, NULL AS miles_km, NULL AS cylinder, p.price, p.template_id, p.cover_page, p.visibility,
 				        p.like_count, p.comment_count, p.created_at, p.updated_at,
 				        u.name AS author_name, u.user_id AS author_handle, u.avatar_url AS author_avatar
 				   FROM posts p
@@ -727,38 +731,74 @@ function isNoSuchColumnError(error: unknown): boolean {
 	return `${error}`.toLowerCase().includes("no such column");
 }
 
-async function loadPreparePosts(db: D1Database): Promise<PostRow[]> {
+async function loadPreparePosts(db: D1Database, prepareStatus: string | null = null): Promise<PostRow[]> {
+	const shouldFilterByPrepareStatus = typeof prepareStatus === "string" && prepareStatus.length > 0;
+	const legacyQuery = shouldFilterByPrepareStatus
+		? PREPARE_POSTS_QUERY_LEGACY.replace(
+			"WHERE p.visibility = 'prepare'",
+			"WHERE p.visibility = 'prepare'\n			    AND p.prepare_status = ?"
+		  )
+		: PREPARE_POSTS_QUERY_LEGACY;
+	const schemaV2Query = shouldFilterByPrepareStatus
+		? PREPARE_POSTS_QUERY_SCHEMA_V2.replace(
+			"WHERE p.visibility = 'prepare'",
+			"WHERE p.visibility = 'prepare'\n			    AND p.prepare_status = ?"
+		  )
+		: PREPARE_POSTS_QUERY_SCHEMA_V2;
+
 	try {
-		const legacyRows = await db.prepare(PREPARE_POSTS_QUERY_LEGACY).all<PostRow>();
+		const legacyStatement = db.prepare(legacyQuery);
+		const legacyRows = shouldFilterByPrepareStatus
+			? await legacyStatement.bind(prepareStatus).all<PostRow>()
+			: await legacyStatement.all<PostRow>();
 		return legacyRows.results ?? [];
 	} catch (error) {
 		if (!isNoSuchColumnError(error)) {
 			throw error;
 		}
-		const schemaV2Rows = await db.prepare(PREPARE_POSTS_QUERY_SCHEMA_V2).all<PostRow>();
+		const schemaV2Statement = db.prepare(schemaV2Query);
+		const schemaV2Rows = shouldFilterByPrepareStatus
+			? await schemaV2Statement.bind(prepareStatus).all<PostRow>()
+			: await schemaV2Statement.all<PostRow>();
 		return schemaV2Rows.results ?? [];
 	}
 }
 
-async function loadPreparePostPages(db: D1Database): Promise<PageRow[]> {
-	const pageRows = await db
-		.prepare(
-			`SELECT pp.post_id,
-			        pp.page_num,
-			        pp.media_url,
-			        pp.raw_media_url,
-			        pp.media_type,
-			        pp.width,
-			        pp.height,
-			        pp.alt_text,
-			        pp.caption,
-			        pp.title
-			   FROM post_pages pp
-			   JOIN posts p ON p.post_id = pp.post_id
-			  WHERE p.visibility = 'prepare'
-			  ORDER BY pp.post_id DESC, pp.page_num ASC`
-		)
-		.all<PageRow>();
+async function loadPreparePostPages(db: D1Database, prepareStatus: string | null = null): Promise<PageRow[]> {
+	const shouldFilterByPrepareStatus = typeof prepareStatus === "string" && prepareStatus.length > 0;
+	const query = shouldFilterByPrepareStatus
+		? `SELECT pp.post_id,
+		        pp.page_num,
+		        pp.media_url,
+		        pp.raw_media_url,
+		        pp.media_type,
+		        pp.width,
+		        pp.height,
+		        pp.alt_text,
+		        pp.caption,
+		        pp.title
+		   FROM post_pages pp
+		   JOIN posts p ON p.post_id = pp.post_id
+		  WHERE p.visibility = 'prepare'
+		    AND p.prepare_status = ?
+		  ORDER BY pp.post_id DESC, pp.page_num ASC`
+		: `SELECT pp.post_id,
+		        pp.page_num,
+		        pp.media_url,
+		        pp.raw_media_url,
+		        pp.media_type,
+		        pp.width,
+		        pp.height,
+		        pp.alt_text,
+		        pp.caption,
+		        pp.title
+		   FROM post_pages pp
+		   JOIN posts p ON p.post_id = pp.post_id
+		  WHERE p.visibility = 'prepare'
+		  ORDER BY pp.post_id DESC, pp.page_num ASC`;
+
+	const statement = db.prepare(query);
+	const pageRows = shouldFilterByPrepareStatus ? await statement.bind(prepareStatus).all<PageRow>() : await statement.all<PageRow>();
 	return pageRows.results ?? [];
 }
 
@@ -1011,6 +1051,8 @@ async function applyGeminiBatchUpdate(
 		};
 	}
 	const geminiInfo = parseGeminiInfoResult.info;
+	const payloadBatchId = asTrimmedOrNull(payload.batch_id);
+	if (payloadBatchId) geminiInfo.job.gemini_batch_id = payloadBatchId;
 	const expectedItemPurpose = getGeminiBatchItemPurposeForPrepareStatus(prepareStatus);
 	const expectedJobPurpose = expectedItemPurpose;
 	const itemType = geminiInfo.item.item_type ?? GEMINI_BATCH_ITEM_TYPE_POSTS;
@@ -1050,7 +1092,7 @@ async function applyGeminiBatchUpdate(
 			return {
 				ok: false,
 				status: 400,
-				message: `gemini_info.job.gemini_batch_id and gemini_info.job.model_name are required for ${prepareStatus}`,
+				message: `batch_id (or gemini_info.job.gemini_batch_id) and gemini_info.job.model_name are required for ${prepareStatus}`,
 				postId,
 			};
 		}
@@ -1424,17 +1466,20 @@ async function applyGeminiBatchUpdate(
 		return { ok: false, status: 500, message: "failed to resolve gemini batch update identifiers", postId };
 	}
 
+	const postBatchId = payloadBatchId ?? geminiBatchId;
+
 	if (hasPrepareData && prepareStatus === GEMINI_BATCH_PREPARE_STATUS_FETCH_URL_DONE) {
 		const prepareSrc = normalizeJsonText(payload.prepare_data);
 		const updatePostResult = await db
 			.prepare(
 				`UPDATE posts
 				    SET prepare_status = ?,
+				        batch_id = COALESCE(?, batch_id),
 				        prepare_src = ?,
 				        updated_at = datetime('now')
 				  WHERE post_id = ?`
 			)
-			.bind(prepareStatus, prepareSrc, postId)
+			.bind(prepareStatus, postBatchId, prepareSrc, postId)
 			.run();
 		if ((updatePostResult.meta?.changes ?? 0) < 1) {
 			return { ok: false, status: 409, message: "failed to update post prepare status", postId };
@@ -1445,11 +1490,12 @@ async function applyGeminiBatchUpdate(
 			.prepare(
 				`UPDATE posts
 				    SET prepare_status = ?,
+				        batch_id = COALESCE(?, batch_id),
 				        prepare_content = ?,
 				        updated_at = datetime('now')
 				  WHERE post_id = ?`
 			)
-			.bind(prepareStatus, prepareContent, postId)
+			.bind(prepareStatus, postBatchId, prepareContent, postId)
 			.run();
 		if ((updatePostResult.meta?.changes ?? 0) < 1) {
 			return { ok: false, status: 409, message: "failed to update post prepare status", postId };
@@ -1459,10 +1505,11 @@ async function applyGeminiBatchUpdate(
 			.prepare(
 				`UPDATE posts
 				    SET prepare_status = ?,
+				        batch_id = COALESCE(?, batch_id),
 				        updated_at = datetime('now')
 				  WHERE post_id = ?`
 			)
-			.bind(prepareStatus, postId)
+			.bind(prepareStatus, postBatchId, postId)
 			.run();
 		if ((updatePostResult.meta?.changes ?? 0) < 1) {
 			return { ok: false, status: 409, message: "failed to update post prepare status", postId };
@@ -1475,6 +1522,7 @@ async function applyGeminiBatchUpdate(
 		prepareStatus,
 		batchJobId,
 		batchItemId,
+		batchId: postBatchId,
 		geminiBatchId,
 	};
 }
@@ -1927,6 +1975,9 @@ export async function GET(request: Request) {
 			});
 		}
 
+		const requestedPrepareStatus = asTrimmedOrNull(
+			requestUrl.searchParams.get("prepare_status") ?? requestUrl.searchParams.get("prepareStatus")
+		);
 		const requestedPostId = parsePostId(requestUrl.searchParams.get("post_id") ?? requestUrl.searchParams.get("postId"));
 		if (requestedPostId) {
 			const loaded = await loadPostForEdit(db, requestedPostId);
@@ -1941,10 +1992,10 @@ export async function GET(request: Request) {
 			});
 		}
 
-		const posts = await loadPreparePosts(db);
+		const posts = await loadPreparePosts(db, requestedPrepareStatus);
 		if (!posts.length) return NextResponse.json({ ok: true, count: 0, posts: [], pages: [] });
 
-		const pages = await loadPreparePostPages(db);
+		const pages = await loadPreparePostPages(db, requestedPrepareStatus);
 
 		return NextResponse.json({
 			ok: true,
@@ -2009,6 +2060,7 @@ export async function POST(request: Request) {
 			debugPosts("gemini batch update completed", {
 				post_id: result.postId,
 				prepare_status: result.prepareStatus,
+				batch_id: result.batchId,
 				batch_job_id: result.batchJobId,
 				batch_item_id: result.batchItemId,
 				gemini_batch_id: result.geminiBatchId,
@@ -2017,6 +2069,7 @@ export async function POST(request: Request) {
 				ok: true,
 				post_id: result.postId,
 				prepare_status: result.prepareStatus,
+				batch_id: result.batchId,
 				batch_job_id: result.batchJobId,
 				batch_item_id: result.batchItemId,
 				gemini_batch_id: result.geminiBatchId,

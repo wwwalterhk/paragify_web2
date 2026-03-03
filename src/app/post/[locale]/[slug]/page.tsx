@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
+import type { CSSProperties, ReactNode } from "react";
 import { authOptions } from "@/lib/auth-options";
 import { FeedPostMediaCarousel } from "@/app/components/feed-post-media-carousel";
 import { PostComment, PostDetailComments } from "./post-detail-comments";
@@ -68,6 +69,9 @@ type PrepareContentParagraph = {
 	content: string | null;
 	url: string | null;
 	hashtags: string[];
+	backgroundColor: string | null;
+	headingColor: string | null;
+	textColor: string | null;
 };
 
 type PrepareContentHeadingImage = {
@@ -75,6 +79,9 @@ type PrepareContentHeadingImage = {
 	url: string;
 	heading: string | null;
 	description: string | null;
+	backgroundColor: string | null;
+	headingColor: string | null;
+	textColor: string | null;
 };
 
 type PrepareContentView = {
@@ -128,6 +135,8 @@ const IMAGE_CDN_ORIGINS = ["https://cdn.paragify.com", "https://cdn2.paragify.co
 const PRIMARY_CDN_ORIGIN = IMAGE_CDN_ORIGINS[0];
 const IMAGE_CDN_HOSTNAMES = new Set(IMAGE_CDN_ORIGINS.map((origin) => new URL(origin).hostname));
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
+const PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME =
+	"inline-flex items-center rounded-full bg-sky-100/90 px-2 py-0.5 font-semibold leading-tight text-sky-800 ring-1 ring-sky-200 transition-colors hover:bg-sky-200 dark:bg-sky-500/20 dark:text-sky-200 dark:ring-sky-400/30 dark:hover:bg-sky-500/30";
 const SITE_NAME = "Paragify";
 const DEFAULT_SITE_URL = "http://localhost:3000";
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).replace(/\/+$/, "");
@@ -220,6 +229,68 @@ function toTrimmedText(value: unknown): string | null {
 	return trimmed.length > 0 ? trimmed : null;
 }
 
+function toPrepareContentHexColor(value: unknown): string | null {
+	const trimmed = toTrimmedText(value);
+	if (!trimmed) {
+		return null;
+	}
+
+	const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+	if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(normalized)) {
+		return null;
+	}
+
+	return normalized;
+}
+
+function toTextColorStyle(value: string | null): CSSProperties | undefined {
+	return value ? { color: value } : undefined;
+}
+
+function toBackgroundColorStyle(value: string | null): CSSProperties | undefined {
+	return value ? { backgroundColor: value } : undefined;
+}
+
+function renderTextWithHashtagLinks(
+	value: string,
+	getFeedTagHref: (hashtag: string) => string,
+	keyPrefix: string,
+	textStyle?: CSSProperties,
+): ReactNode {
+	const nodes: ReactNode[] = [];
+	const hashtagMatches = Array.from(value.matchAll(/#[\p{L}\p{N}\p{M}_]+/gu));
+	let cursor = 0;
+
+	for (let index = 0; index < hashtagMatches.length; index += 1) {
+		const match = hashtagMatches[index];
+		const hashtag = match[0];
+		const startIndex = match.index ?? 0;
+
+		if (startIndex > cursor) {
+			nodes.push(value.slice(cursor, startIndex));
+		}
+
+		nodes.push(
+			<Link
+				key={`${keyPrefix}-hashtag-${index}-${startIndex}`}
+				href={getFeedTagHref(hashtag)}
+				className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
+				style={textStyle}
+			>
+				{hashtag}
+			</Link>,
+		);
+
+		cursor = startIndex + hashtag.length;
+	}
+
+	if (cursor < value.length) {
+		nodes.push(value.slice(cursor));
+	}
+
+	return nodes.length > 0 ? nodes : value;
+}
+
 function parsePossiblyEscapedJson(value: unknown, maxDepth = 4): unknown {
 	let current: unknown = value;
 
@@ -293,6 +364,9 @@ function parsePrepareContent(value: string | null): PrepareContentView | null {
 			url,
 			heading: toTrimmedText(imageRecord?.heading),
 			description: toTrimmedText(imageRecord?.desc),
+			backgroundColor: toPrepareContentHexColor(imageRecord?.background_color),
+			headingColor: toPrepareContentHexColor(imageRecord?.heading_color),
+			textColor: toPrepareContentHexColor(imageRecord?.text_color ?? imageRecord?.content_color),
 		});
 	}
 
@@ -331,6 +405,9 @@ function parsePrepareContent(value: string | null): PrepareContentView | null {
 			content,
 			url,
 			hashtags,
+			backgroundColor: toPrepareContentHexColor(paragraphRecord.background_color),
+			headingColor: toPrepareContentHexColor(paragraphRecord.heading_color),
+			textColor: toPrepareContentHexColor(paragraphRecord.text_color ?? paragraphRecord.content_color),
 		});
 	}
 
@@ -888,8 +965,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 	const initials = getAvatarInitials(handle);
 	const trimmedCaption = post.caption?.trim() ?? "";
 	const prepareContent = parsePrepareContent(post.prepare_content);
-	const headingImage1 = prepareContent?.headingImages.find((image) => image.slot === 1) ?? null;
-	const headingImage2 = prepareContent?.headingImages.find((image) => image.slot === 2) ?? null;
+	const headingImages = prepareContent?.headingImages ?? [];
 	const { content, hashtags } = parseCaption(trimmedCaption);
 	const getFeedTagHref = (hashtag: string) => `/?tag=${encodeURIComponent(hashtag.replace(/^#/, ""))}`;
 	const slugRef = getPostSlugRef(post);
@@ -1038,118 +1114,148 @@ export default async function PostDetailPage({ params }: PageProps) {
 							<div className="space-y-3.5 text-[15px] leading-6 text-zinc-800 dark:text-zinc-200">
 								{prepareContent.eyebrow ? (
 									<p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
-										{prepareContent.eyebrow}
+										{renderTextWithHashtagLinks(prepareContent.eyebrow, getFeedTagHref, "prepare-eyebrow")}
 									</p>
 								) : null}
 								{prepareContent.title ? (
 									<p className="text-2xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-zinc-100 sm:text-[1.75rem]">
-										{prepareContent.title}
+										{renderTextWithHashtagLinks(prepareContent.title, getFeedTagHref, "prepare-title")}
 									</p>
 								) : null}
 								{prepareContent.subtitle ? (
-									<p className="whitespace-pre-line break-words text-base leading-7">{prepareContent.subtitle}</p>
+									<p className="whitespace-pre-line break-words text-base leading-7">
+										{renderTextWithHashtagLinks(prepareContent.subtitle, getFeedTagHref, "prepare-subtitle")}
+									</p>
 								) : null}
 								{prepareContent.footerLine ? (
 									<p className="whitespace-pre-line break-words text-sm text-zinc-500 dark:text-zinc-400">
-										{prepareContent.footerLine}
+										{renderTextWithHashtagLinks(prepareContent.footerLine, getFeedTagHref, "prepare-footer")}
 									</p>
 								) : null}
 
-								{headingImage1 ? (
-									<div className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
-										<Image
-											src={headingImage1.url}
-											alt={headingImage1.heading || headingImage1.description || prepareContent.title || "Heading image"}
-											width={1200}
-											height={900}
-											sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
-											className="h-auto w-full rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
-										/>
-										{headingImage1.heading ? (
-											<p className="text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100">{headingImage1.heading}</p>
-										) : null}
-										{headingImage1.description ? (
-											<p className="whitespace-pre-line break-words text-base leading-7 text-zinc-700 dark:text-zinc-300">
-												{headingImage1.description}
-											</p>
-										) : null}
-									</div>
-								) : null}
+								{headingImages.map((headingImage) => {
+									const headingStyle = toTextColorStyle(headingImage.headingColor);
+									const textStyle = toTextColorStyle(headingImage.textColor);
+									const containerStyle = toBackgroundColorStyle(headingImage.backgroundColor);
 
-								{headingImage2 ? (
-									<div className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
-										<Image
-											src={headingImage2.url}
-											alt={headingImage2.heading || headingImage2.description || prepareContent.title || "Heading image"}
-											width={1200}
-											height={900}
-											sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
-											className="h-auto w-full rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
-										/>
-										{headingImage2.heading ? (
-											<p className="text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100">{headingImage2.heading}</p>
-										) : null}
-										{headingImage2.description ? (
-											<p className="whitespace-pre-line break-words text-base leading-7 text-zinc-700 dark:text-zinc-300">
-												{headingImage2.description}
-											</p>
-										) : null}
-									</div>
-								) : null}
+									return (
+										<div
+											key={`heading-image-${headingImage.slot}`}
+											className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900"
+											style={containerStyle}
+										>
+											<Image
+												src={headingImage.url}
+												alt={headingImage.heading || headingImage.description || prepareContent.title || "Heading image"}
+												width={1200}
+												height={900}
+												sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
+												className="h-auto w-full rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
+											/>
+											{headingImage.heading ? (
+												<p className="text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100" style={headingStyle}>
+													{renderTextWithHashtagLinks(
+														headingImage.heading,
+														getFeedTagHref,
+														`heading-image-${headingImage.slot}-heading`,
+														headingStyle,
+													)}
+												</p>
+											) : null}
+											{headingImage.description ? (
+												<p
+													className="whitespace-pre-line break-words text-base leading-7 text-zinc-700 dark:text-zinc-300"
+													style={textStyle}
+												>
+													{renderTextWithHashtagLinks(
+														headingImage.description,
+														getFeedTagHref,
+														`heading-image-${headingImage.slot}-description`,
+														textStyle,
+													)}
+												</p>
+											) : null}
+										</div>
+									);
+								})}
 
 								{prepareContent.paragraphs.length > 0 ? (
 									<div className="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-										{prepareContent.paragraphs.map((paragraph, index) => (
-											<div key={`paragraph-${index}`} className="space-y-1">
-												{paragraph.heading ? (
-													<p className="whitespace-pre-line break-words text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100">
-														{paragraph.heading}
-													</p>
-												) : null}
+										{prepareContent.paragraphs.map((paragraph, index) => {
+											const headingStyle = toTextColorStyle(paragraph.headingColor);
+											const textStyle = toTextColorStyle(paragraph.textColor);
+											const containerStyle = toBackgroundColorStyle(paragraph.backgroundColor);
+											const paragraphClassName = paragraph.backgroundColor
+												? "space-y-1 rounded-xl px-3 py-2.5"
+												: "space-y-1";
 
-												{paragraph.type === "hashtags" ? (
-													<p className="flex flex-wrap gap-x-1 gap-y-0.5">
-														{paragraph.hashtags.map((hashtag, hashtagIndex) => (
-															<Link
-																key={`paragraph-hashtag-${index}-${hashtagIndex}`}
-																href={getFeedTagHref(hashtag)}
-																className="font-semibold text-sky-700 dark:text-sky-300"
-															>
-																{hashtag}
-															</Link>
-														))}
-													</p>
-												) : (
-													<>
-														{paragraph.type === "image" && paragraph.url ? (
-															<Image
-																src={paragraph.url}
-																alt={paragraph.heading || paragraph.content || "Paragraph image"}
-																width={1200}
-																height={900}
-																sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
-																className="h-auto w-full rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
-															/>
-														) : null}
-														{paragraph.content ? (
-															<p className="whitespace-pre-line break-words text-base leading-7 sm:text-[1.05rem]">
-																{paragraph.content}
-															</p>
-														) : null}
-														{paragraph.url && paragraph.type !== "image" ? (
-															<Link
-																href={paragraph.url}
-																target="_blank"
-																rel="noopener noreferrer"
-																className="block break-all text-xs font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-300 dark:hover:text-sky-200"
-															>
-																{paragraph.url}
-															</Link>
-														) : null}
-													</>
-												)}
-											</div>
-										))}
+											return (
+												<div key={`paragraph-${index}`} className={paragraphClassName} style={containerStyle}>
+													{paragraph.heading ? (
+														<p
+															className="whitespace-pre-line break-words text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100"
+															style={headingStyle}
+														>
+															{renderTextWithHashtagLinks(
+																paragraph.heading,
+																getFeedTagHref,
+																`paragraph-${index}-heading`,
+																headingStyle,
+															)}
+														</p>
+													) : null}
+
+													{paragraph.type === "hashtags" ? (
+														<p className="flex flex-wrap gap-x-1 gap-y-0.5">
+															{paragraph.hashtags.map((hashtag, hashtagIndex) => (
+																<Link
+																	key={`paragraph-hashtag-${index}-${hashtagIndex}`}
+																	href={getFeedTagHref(hashtag)}
+																	className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
+																	style={textStyle}
+																>
+																	{hashtag}
+																</Link>
+															))}
+														</p>
+													) : (
+														<>
+															{paragraph.type === "image" && paragraph.url ? (
+																<Image
+																	src={paragraph.url}
+																	alt={paragraph.heading || paragraph.content || "Paragraph image"}
+																	width={1200}
+																	height={900}
+																	sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
+																	className="h-auto w-full rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
+																/>
+															) : null}
+															{paragraph.content ? (
+																<p className="whitespace-pre-line break-words text-base leading-7 sm:text-[1.05rem]" style={textStyle}>
+																	{renderTextWithHashtagLinks(
+																		paragraph.content,
+																		getFeedTagHref,
+																		`paragraph-${index}-content`,
+																		textStyle,
+																	)}
+																</p>
+															) : null}
+															{paragraph.url && paragraph.type !== "image" ? (
+																<Link
+																	href={paragraph.url}
+																	target="_blank"
+																	rel="noopener noreferrer"
+																	className="block break-all text-xs font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-300 dark:hover:text-sky-200"
+																	style={textStyle}
+																>
+																	{paragraph.url}
+																</Link>
+															) : null}
+														</>
+													)}
+												</div>
+											);
+										})}
 									</div>
 								) : null}
 
@@ -1159,7 +1265,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 											<Link
 												key={`heading-hashtag-${hashtag}-${index}`}
 												href={getFeedTagHref(hashtag)}
-												className="font-semibold text-sky-700 dark:text-sky-300"
+												className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
 											>
 												{hashtag}
 											</Link>
