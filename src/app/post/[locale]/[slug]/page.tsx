@@ -136,7 +136,12 @@ const PRIMARY_CDN_ORIGIN = IMAGE_CDN_ORIGINS[0];
 const IMAGE_CDN_HOSTNAMES = new Set(IMAGE_CDN_ORIGINS.map((origin) => new URL(origin).hostname));
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
 const PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME =
-	"inline-flex items-center rounded-full bg-sky-100/90 px-2 py-0.5 font-semibold leading-tight text-sky-800 ring-1 ring-sky-200 transition-colors hover:bg-sky-200 dark:bg-sky-500/20 dark:text-sky-200 dark:ring-sky-400/30 dark:hover:bg-sky-500/30";
+	"inline-flex items-center rounded-full px-2 py-0.5 font-semibold leading-tight ring-1 transition-opacity hover:opacity-90";
+const PREPARE_CONTENT_HASHTAG_LINK_STYLE: CSSProperties = {
+	backgroundColor: "color-mix(in srgb, var(--accent-2) 14%, var(--surface))",
+	color: "var(--accent-2)",
+	borderColor: "color-mix(in srgb, var(--accent-2) 35%, transparent)",
+};
 const SITE_NAME = "Paragify";
 const DEFAULT_SITE_URL = "http://localhost:3000";
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).replace(/\/+$/, "");
@@ -274,6 +279,7 @@ function renderTextWithHashtagLinks(
 				key={`${keyPrefix}-hashtag-${index}-${startIndex}`}
 				href={getFeedTagHref(hashtag)}
 				className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
+				style={PREPARE_CONTENT_HASHTAG_LINK_STYLE}
 			>
 				{hashtag}
 			</Link>,
@@ -1032,20 +1038,39 @@ export default async function PostDetailPage({ params }: PageProps) {
 	};
 
 	return (
-		<main className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-80px,#e2e8f0_0%,#ffffff_55%)] pb-12 dark:bg-[radial-gradient(1200px_600px_at_50%_-80px,#1f2937_0%,#09090b_55%)]">
+		<main className="min-h-screen pb-12 text-[color:var(--txt-1)]">
+			<div
+				className="pointer-events-none fixed inset-0 -z-10"
+				style={{
+					backgroundColor: "var(--bg-1)",
+					backgroundImage: "var(--page-bg-gradient)",
+				}}
+			/>
 			<div className="mx-auto w-full max-w-xl px-3 pt-6">
 				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }} />
 				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(postJsonLd) }} />
 				<div className="mb-4">
 					<Link
 						href="/"
-						className="inline-flex items-center rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+						className="inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors hover:bg-[color:var(--cell-2)]"
+						style={{
+							borderColor: "var(--surface-border)",
+							backgroundColor: "var(--surface)",
+							color: "var(--txt-2)",
+						}}
 					>
 						{t.back}
 					</Link>
 				</div>
 
-				<article className="overflow-hidden rounded-[22px] border border-zinc-200 bg-white shadow-[0_10px_28px_-18px_rgba(15,23,42,0.45)] dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-[0_10px_28px_-16px_rgba(0,0,0,0.8)]">
+				<article
+					className="overflow-hidden rounded-[22px] border"
+					style={{
+						borderColor: "var(--surface-border)",
+						backgroundColor: "var(--surface)",
+						boxShadow: "var(--shadow-elev-1)",
+					}}
+				>
 					<div className="flex items-center justify-between px-4 py-3">
 						<div className="flex items-center gap-3">
 							{post.author_avatar ? (
@@ -1064,19 +1089,22 @@ export default async function PostDetailPage({ params }: PageProps) {
 								</div>
 							)}
 							<div className="leading-tight">
-								<p className="max-w-[14rem] truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{authorName}</p>
+								<p className="max-w-[14rem] truncate text-sm font-semibold text-[color:var(--txt-1)]">{authorName}</p>
 								{showAuthorHandleLine ? (
-									<p className="max-w-[14rem] truncate text-xs font-medium text-zinc-600 dark:text-zinc-300">
+									<p className="max-w-[14rem] truncate text-xs font-medium text-[color:var(--txt-2)]">
 										{authorHandleLabel}
 									</p>
 								) : null}
-								<p className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+								<p className="text-[11px] uppercase tracking-wide text-[color:var(--txt-3)]">
 									{formatDate(post.created_at)}
 								</p>
 							</div>
 						</div>
 						{post.post_slug ? (
-							<span className="rounded-full border border-zinc-300 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+							<span
+								className="rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--txt-3)]"
+								style={{ borderColor: "var(--surface-border)" }}
+							>
 								/{post.post_slug}
 							</span>
 						) : null}
@@ -1091,7 +1119,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 					/>
 
 					<div className="space-y-3 px-4 pb-4 pt-3">
-						<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+						<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] uppercase tracking-wide text-[color:var(--txt-3)]">
 							<span>
 								{formatCount(post.like_count)} {t.likes}
 							</span>
@@ -1109,26 +1137,62 @@ export default async function PostDetailPage({ params }: PageProps) {
 						</div>
 
 						{prepareContent ? (
-							<div className="space-y-3.5 text-[15px] leading-6 text-zinc-800 dark:text-zinc-200">
-								{prepareContent.eyebrow ? (
-									<p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
-										{renderTextWithHashtagLinks(prepareContent.eyebrow, getFeedTagHref, "prepare-eyebrow")}
-									</p>
-								) : null}
-								{prepareContent.title ? (
-									<p className="text-2xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-zinc-100 sm:text-[1.75rem]">
-										{renderTextWithHashtagLinks(prepareContent.title, getFeedTagHref, "prepare-title")}
-									</p>
-								) : null}
-								{prepareContent.subtitle ? (
-									<p className="whitespace-pre-line break-words text-base leading-7">
-										{renderTextWithHashtagLinks(prepareContent.subtitle, getFeedTagHref, "prepare-subtitle")}
-									</p>
-								) : null}
-								{prepareContent.footerLine ? (
-									<p className="whitespace-pre-line break-words text-sm text-zinc-500 dark:text-zinc-400">
-										{renderTextWithHashtagLinks(prepareContent.footerLine, getFeedTagHref, "prepare-footer")}
-									</p>
+							<div className="space-y-4 text-[15px] leading-6 text-[color:var(--txt-2)]">
+								{prepareContent.eyebrow ||
+								prepareContent.title ||
+								prepareContent.subtitle ||
+								prepareContent.footerLine ||
+								prepareContent.headingHashtags.length > 0 ? (
+									<header
+										className="relative overflow-hidden rounded-2xl border px-4 py-3.5 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.9)] sm:px-5 sm:py-4"
+										style={{
+											borderColor: "color-mix(in srgb, var(--surface-border) 92%, transparent)",
+											backgroundImage:
+												"linear-gradient(145deg, color-mix(in srgb, var(--surface) 88%, var(--bg-3) 12%) 0%, color-mix(in srgb, var(--cell-3) 78%, var(--surface) 22%) 100%)",
+										}}
+									>
+										<div
+											className="pointer-events-none absolute -right-12 -top-14 h-32 w-32 rounded-full blur-2xl"
+											style={{ backgroundColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)" }}
+											aria-hidden
+										/>
+										<div className="relative space-y-2.5">
+											{prepareContent.eyebrow ? (
+												<p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[color:var(--accent-2)]">
+													{renderTextWithHashtagLinks(prepareContent.eyebrow, getFeedTagHref, "prepare-eyebrow")}
+												</p>
+											) : null}
+											{prepareContent.title ? (
+												<p className="text-[1.95rem] font-black leading-[1.15] tracking-[-0.015em] text-[color:var(--txt-1)] sm:text-[2.1rem]">
+													{renderTextWithHashtagLinks(prepareContent.title, getFeedTagHref, "prepare-title")}
+												</p>
+											) : null}
+											{prepareContent.subtitle ? (
+												<p className="whitespace-pre-line break-words text-[1.02rem] leading-7 text-[color:var(--txt-2)]">
+													{renderTextWithHashtagLinks(prepareContent.subtitle, getFeedTagHref, "prepare-subtitle")}
+												</p>
+											) : null}
+											{prepareContent.footerLine ? (
+												<p className="whitespace-pre-line break-words text-[0.8rem] font-medium leading-5 text-[color:var(--txt-3)]">
+													{renderTextWithHashtagLinks(prepareContent.footerLine, getFeedTagHref, "prepare-footer")}
+												</p>
+											) : null}
+											{prepareContent.headingHashtags.length > 0 ? (
+												<p className="flex flex-wrap gap-1.5 pt-0.5">
+													{prepareContent.headingHashtags.map((hashtag, index) => (
+														<Link
+															key={`heading-hashtag-${hashtag}-${index}`}
+															href={getFeedTagHref(hashtag)}
+															className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
+															style={PREPARE_CONTENT_HASHTAG_LINK_STYLE}
+														>
+															{hashtag}
+														</Link>
+													))}
+												</p>
+											) : null}
+										</div>
+									</header>
 								) : null}
 
 								{headingImages.map((headingImage) => {
@@ -1139,8 +1203,12 @@ export default async function PostDetailPage({ params }: PageProps) {
 									return (
 										<div
 											key={`heading-image-${headingImage.slot}`}
-											className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900"
-											style={containerStyle}
+											className="space-y-2 rounded-2xl border p-4"
+											style={{
+												borderColor: "var(--surface-border)",
+												backgroundColor: "var(--cell-2)",
+												...containerStyle,
+											}}
 										>
 											<Image
 												src={headingImage.url}
@@ -1148,10 +1216,11 @@ export default async function PostDetailPage({ params }: PageProps) {
 												width={1200}
 												height={900}
 												sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
-												className="h-auto w-full rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
+												className="h-auto w-full rounded-lg border object-cover"
+												style={{ borderColor: "var(--surface-border)" }}
 											/>
 											{headingImage.heading ? (
-												<p className="text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100" style={headingStyle}>
+												<p className="text-lg font-semibold leading-tight text-[color:var(--txt-1)]" style={headingStyle}>
 													{renderTextWithHashtagLinks(
 														headingImage.heading,
 														getFeedTagHref,
@@ -1161,7 +1230,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 											) : null}
 											{headingImage.description ? (
 												<p
-													className="whitespace-pre-line break-words text-base leading-7 text-zinc-700 dark:text-zinc-300"
+													className="whitespace-pre-line break-words text-base leading-7 text-[color:var(--txt-2)]"
 													style={textStyle}
 												>
 													{renderTextWithHashtagLinks(
@@ -1176,7 +1245,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 								})}
 
 								{prepareContent.paragraphs.length > 0 ? (
-									<div className="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+									<div className="space-y-3 border-t pt-3" style={{ borderColor: "var(--surface-border)" }}>
 										{prepareContent.paragraphs.map((paragraph, index) => {
 											const headingStyle = toTextColorStyle(paragraph.headingColor);
 											const textStyle = toTextColorStyle(paragraph.textColor);
@@ -1189,7 +1258,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 												<div key={`paragraph-${index}`} className={paragraphClassName} style={containerStyle}>
 													{paragraph.heading ? (
 														<p
-															className="whitespace-pre-line break-words text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100"
+															className="whitespace-pre-line break-words text-lg font-semibold leading-tight text-[color:var(--txt-1)]"
 															style={headingStyle}
 														>
 															{renderTextWithHashtagLinks(
@@ -1207,6 +1276,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 																	key={`paragraph-hashtag-${index}-${hashtagIndex}`}
 																	href={getFeedTagHref(hashtag)}
 																	className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
+																	style={PREPARE_CONTENT_HASHTAG_LINK_STYLE}
 																>
 																	{hashtag}
 																</Link>
@@ -1221,7 +1291,8 @@ export default async function PostDetailPage({ params }: PageProps) {
 																	width={1200}
 																	height={900}
 																	sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
-																	className="h-auto w-full rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
+																	className="h-auto w-full rounded-lg border object-cover"
+																	style={{ borderColor: "var(--surface-border)" }}
 																/>
 															) : null}
 															{paragraph.content ? (
@@ -1238,8 +1309,8 @@ export default async function PostDetailPage({ params }: PageProps) {
 																	href={paragraph.url}
 																	target="_blank"
 																	rel="noopener noreferrer"
-																	className="block break-all text-xs font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-300 dark:hover:text-sky-200"
-																	style={textStyle}
+																	className="block break-all text-xs font-semibold transition-opacity hover:opacity-85"
+																	style={textStyle ?? { color: "var(--accent-2)" }}
 																>
 																	{paragraph.url}
 																</Link>
@@ -1252,24 +1323,11 @@ export default async function PostDetailPage({ params }: PageProps) {
 									</div>
 								) : null}
 
-								{prepareContent.headingHashtags.length > 0 ? (
-									<p className="flex flex-wrap gap-x-1 gap-y-0.5">
-										{prepareContent.headingHashtags.map((hashtag, index) => (
-											<Link
-												key={`heading-hashtag-${hashtag}-${index}`}
-												href={getFeedTagHref(hashtag)}
-												className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
-											>
-												{hashtag}
-											</Link>
-										))}
-									</p>
-								) : null}
 							</div>
 						) : trimmedCaption ? (
-							<div className="space-y-1 text-[15px] leading-6 text-zinc-800 dark:text-zinc-200">
+							<div className="space-y-1 text-[15px] leading-6 text-[color:var(--txt-2)]">
 								<p className="whitespace-pre-line break-words">
-									<span className="mr-1 font-semibold text-zinc-900 dark:text-zinc-100">{handle}</span>
+									<span className="mr-1 font-semibold text-[color:var(--txt-1)]">{handle}</span>
 									{content || trimmedCaption}
 								</p>
 								{hashtags.length > 0 ? (
@@ -1278,7 +1336,8 @@ export default async function PostDetailPage({ params }: PageProps) {
 											<Link
 												key={`${hashtag}-${index}`}
 												href={getFeedTagHref(hashtag)}
-												className="font-semibold text-sky-700 dark:text-sky-300"
+												className="font-semibold"
+												style={{ color: "var(--accent-2)" }}
 											>
 												{hashtag}
 											</Link>
@@ -1287,7 +1346,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 								) : null}
 							</div>
 						) : (
-							<p className="text-sm italic text-zinc-500 dark:text-zinc-400">{t.noCaption}</p>
+							<p className="text-sm italic text-[color:var(--txt-3)]">{t.noCaption}</p>
 						)}
 					</div>
 				</article>
