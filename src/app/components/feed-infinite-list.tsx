@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	Bars3BottomLeftIcon,
 	BookmarkIcon as BookmarkOutlineIcon,
 	ChatBubbleOvalLeftIcon,
 	EllipsisHorizontalIcon,
@@ -240,6 +241,14 @@ export function FeedInfiniteList({
 		(postSlug: string | null) => {
 			if (!postSlug?.trim()) return;
 			router.push(`/post/${localeSegment}/${encodeURIComponent(postSlug)}#comments`);
+		},
+		[localeSegment, router],
+	);
+
+	const openParagraph = useCallback(
+		(postSlug: string | null) => {
+			if (!postSlug?.trim()) return;
+			router.push(`/post/${localeSegment}/${encodeURIComponent(postSlug)}`);
 		},
 		[localeSegment, router],
 	);
@@ -693,6 +702,21 @@ export function FeedInfiniteList({
 											>
 												<PaperAirplaneIcon className="h-6 w-6" aria-hidden="true" />
 											</button>
+											<button
+												type="button"
+												aria-label="Paragraph"
+												onClick={() => openParagraph(post.post_slug)}
+												disabled={!post.post_slug}
+												className={[
+													"inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition",
+													post.post_slug
+														? "hover:text-[color:var(--txt-1)]"
+														: "cursor-not-allowed opacity-40",
+												].join(" ")}
+											>
+												<Bars3BottomLeftIcon className="h-6 w-6" aria-hidden="true" />
+												<span>Paragraph</span>
+											</button>
 										</div>
 										<button
 											type="button"
@@ -720,7 +744,7 @@ export function FeedInfiniteList({
 									</p>
 
 									{trimmedCaption ? (
-										<FeedPostCaption handle={handle} caption={trimmedCaption} postSlug={post.post_slug} />
+										<FeedPostCaption handle={handle} caption={trimmedCaption} />
 									) : (
 										<p className="text-sm italic text-[color:var(--txt-3)]">No caption.</p>
 									)}

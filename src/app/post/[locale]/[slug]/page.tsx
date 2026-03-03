@@ -970,7 +970,7 @@ export default async function PostDetailPage({ params }: PageProps) {
 	const trimmedCaption = post.caption?.trim() ?? "";
 	const prepareContent = parsePrepareContent(post.prepare_content);
 	const headingImages = prepareContent?.headingImages ?? [];
-	const { content, hashtags } = parseCaption(trimmedCaption);
+	const { content } = parseCaption(trimmedCaption);
 	const getFeedTagHref = (hashtag: string) => `/?tag=${encodeURIComponent(hashtag.replace(/^#/, ""))}`;
 	const slugRef = getPostSlugRef(post);
 	const canonicalUrl = toAbsoluteUrl(buildPostPath(lang, slugRef));
@@ -1330,20 +1330,6 @@ export default async function PostDetailPage({ params }: PageProps) {
 									<span className="mr-1 font-semibold text-[color:var(--txt-1)]">{handle}</span>
 									{content || trimmedCaption}
 								</p>
-								{hashtags.length > 0 ? (
-									<p className="flex flex-wrap gap-x-1 gap-y-0.5">
-										{hashtags.map((hashtag, index) => (
-											<Link
-												key={`${hashtag}-${index}`}
-												href={getFeedTagHref(hashtag)}
-												className="font-semibold"
-												style={{ color: "var(--accent-2)" }}
-											>
-												{hashtag}
-											</Link>
-										))}
-									</p>
-								) : null}
 							</div>
 						) : (
 							<p className="text-sm italic text-[color:var(--txt-3)]">{t.noCaption}</p>
