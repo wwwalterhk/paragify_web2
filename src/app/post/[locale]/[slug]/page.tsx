@@ -255,7 +255,6 @@ function renderTextWithHashtagLinks(
 	value: string,
 	getFeedTagHref: (hashtag: string) => string,
 	keyPrefix: string,
-	textStyle?: CSSProperties,
 ): ReactNode {
 	const nodes: ReactNode[] = [];
 	const hashtagMatches = Array.from(value.matchAll(/#[\p{L}\p{N}\p{M}_]+/gu));
@@ -275,7 +274,6 @@ function renderTextWithHashtagLinks(
 				key={`${keyPrefix}-hashtag-${index}-${startIndex}`}
 				href={getFeedTagHref(hashtag)}
 				className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
-				style={textStyle}
 			>
 				{hashtag}
 			</Link>,
@@ -1158,7 +1156,6 @@ export default async function PostDetailPage({ params }: PageProps) {
 														headingImage.heading,
 														getFeedTagHref,
 														`heading-image-${headingImage.slot}-heading`,
-														headingStyle,
 													)}
 												</p>
 											) : null}
@@ -1171,7 +1168,6 @@ export default async function PostDetailPage({ params }: PageProps) {
 														headingImage.description,
 														getFeedTagHref,
 														`heading-image-${headingImage.slot}-description`,
-														textStyle,
 													)}
 												</p>
 											) : null}
@@ -1200,7 +1196,6 @@ export default async function PostDetailPage({ params }: PageProps) {
 																paragraph.heading,
 																getFeedTagHref,
 																`paragraph-${index}-heading`,
-																headingStyle,
 															)}
 														</p>
 													) : null}
@@ -1212,7 +1207,6 @@ export default async function PostDetailPage({ params }: PageProps) {
 																	key={`paragraph-hashtag-${index}-${hashtagIndex}`}
 																	href={getFeedTagHref(hashtag)}
 																	className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
-																	style={textStyle}
 																>
 																	{hashtag}
 																</Link>
@@ -1236,7 +1230,6 @@ export default async function PostDetailPage({ params }: PageProps) {
 																		paragraph.content,
 																		getFeedTagHref,
 																		`paragraph-${index}-content`,
-																		textStyle,
 																	)}
 																</p>
 															) : null}
