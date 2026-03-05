@@ -38,7 +38,13 @@ const SWIPE_MIN_DISTANCE_PX = 40;
 const SWIPE_DIRECTION_LOCK_PX = 10;
 const SWIPE_SNAP_RATIO = 0.22;
 const SWIPE_MIN_VELOCITY_PX_PER_MS = 0.45;
-const EDGE_RESISTANCE = 0.35;
+
+function getWrappedIndex(index: number, total: number): number {
+	if (total <= 0) {
+		return 0;
+	}
+	return ((index % total) + total) % total;
+}
 
 export function FeedPostMediaCarousel({
 	postId,
@@ -52,6 +58,7 @@ export function FeedPostMediaCarousel({
 	const [activeImagePending, setActiveImagePending] = useState(false);
 	const [dragOffsetPx, setDragOffsetPx] = useState(0);
 	const [isDragging, setIsDragging] = useState(false);
+	const [trackTransitionEnabled, setTrackTransitionEnabled] = useState(true);
 	const carouselViewportRef = useRef<HTMLDivElement | null>(null);
 	const swipeStateRef = useRef<{
 		pointerId: number;
@@ -63,16 +70,18 @@ export function FeedPostMediaCarousel({
 		velocityX: number;
 	} | null>(null);
 	const loadedImageUrlsRef = useRef<Set<string>>(new Set());
+	const prefetchingImageUrlsRef = useRef<Set<string>>(new Set());
 
 	useEffect(() => {
 		setActiveIndex((current) => {
 			if (mediaItems.length <= 1) {
 				return 0;
 			}
-			return Math.min(current, mediaItems.length - 1);
+			return getWrappedIndex(current, mediaItems.length);
 		});
 		setDragOffsetPx(0);
 		setIsDragging(false);
+		setTrackTransitionEnabled(true);
 		swipeStateRef.current = null;
 	}, [mediaItems.length]);
 
@@ -85,6 +94,8 @@ export function FeedPostMediaCarousel({
 	const activeImageLoading = activeIndex === 0 && firstImageFetchPriority === "high" ? "eager" : "lazy";
 	const pageScaleDimensions = FEED_PAGE_SCALE_DIMENSIONS[pageScale];
 	const swipeEnabled = resolvedMediaItems.length > 1;
+	const wrappedPrevIndex = getWrappedIndex(activeIndex - 1, resolvedMediaItems.length);
+	const wrappedNextIndex = getWrappedIndex(activeIndex + 1, resolvedMediaItems.length);
 
 	useEffect(() => {
 		if (activeMediaItem.media_type !== "image" || !activeImageSource) {
@@ -94,10 +105,55 @@ export function FeedPostMediaCarousel({
 		setActiveImagePending(!loadedImageUrlsRef.current.has(activeImageSource));
 	}, [activeImageSource, activeMediaItem.media_type]);
 
-	function goToPage(index: number) {
-		const clampedIndex = Math.max(0, Math.min(resolvedMediaItems.length - 1, index));
-		setActiveIndex(clampedIndex);
+	function goToPage(index: number, disableTransition = false) {
+		const wrappedIndex = getWrappedIndex(index, resolvedMediaItems.length);
+		if (disableTransition) {
+			setTrackTransitionEnabled(false);
+		} else if (!trackTransitionEnabled) {
+			setTrackTransitionEnabled(true);
+		}
+		setActiveIndex(wrappedIndex);
 		setDragOffsetPx(0);
+	}
+
+	function prefetchImageSource(source: string | null) {
+		const normalizedSource = source?.trim() || null;
+		if (!normalizedSource) return;
+		if (loadedImageUrlsRef.current.has(normalizedSource)) return;
+		if (prefetchingImageUrlsRef.current.has(normalizedSource)) return;
+
+		prefetchingImageUrlsRef.current.add(normalizedSource);
+		const prefetchImage = new window.Image();
+		prefetchImage.decoding = "async";
+		const finalize = () => {
+			prefetchingImageUrlsRef.current.delete(normalizedSource);
+		};
+		prefetchImage.onload = () => {
+			loadedImageUrlsRef.current.add(normalizedSource);
+			finalize();
+		};
+		prefetchImage.onerror = finalize;
+		prefetchImage.src = normalizedSource;
+	}
+
+	function prefetchFollowingImages(fromIndex: number) {
+		for (let offset = 1; offset <= 2; offset += 1) {
+			const nextItemIndex = getWrappedIndex(fromIndex + offset, resolvedMediaItems.length);
+			const nextItem = resolvedMediaItems[nextItemIndex];
+			if (!nextItem || nextItem.media_type !== "image") continue;
+			prefetchImageSource(nextItem.source_url || nextItem.transformed_image_url);
+		}
+	}
+
+	function goToPageWithPrefetch(
+		index: number,
+		options: { movedForward?: boolean; disableTransition?: boolean } = {},
+	) {
+		const wrappedIndex = getWrappedIndex(index, resolvedMediaItems.length);
+		goToPage(wrappedIndex, options.disableTransition ?? false);
+		if (options.movedForward) {
+			prefetchFollowingImages(wrappedIndex);
+		}
 	}
 
 	function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -154,16 +210,9 @@ export function FeedPostMediaCarousel({
 			return;
 		}
 
-		let nextDragOffset = deltaX;
-		const isAtFirstPage = activeIndex === 0;
-		const isAtLastPage = activeIndex === resolvedMediaItems.length - 1;
-		if ((isAtFirstPage && nextDragOffset > 0) || (isAtLastPage && nextDragOffset < 0)) {
-			nextDragOffset *= EDGE_RESISTANCE;
-		}
-
 		setIsDragging(true);
-		setDragOffsetPx(nextDragOffset);
-		if (Math.abs(nextDragOffset) > SWIPE_DIRECTION_LOCK_PX) {
+		setDragOffsetPx(deltaX);
+		if (Math.abs(deltaX) > SWIPE_DIRECTION_LOCK_PX) {
 			event.preventDefault();
 		}
 	}
@@ -186,21 +235,34 @@ export function FeedPostMediaCarousel({
 		const hasVelocityThreshold = Math.abs(swipeState.velocityX) >= SWIPE_MIN_VELOCITY_PX_PER_MS;
 
 		let nextIndex = activeIndex;
+		let swipeDirection: 1 | -1 | null = null;
 		if (swipeState.axisLock === "x" && (hasDistanceThreshold || hasVelocityThreshold)) {
-			const direction = hasVelocityThreshold
+			const direction: 1 | -1 = hasVelocityThreshold
 				? swipeState.velocityX < 0
 					? 1
 					: -1
 				: deltaX < 0
 					? 1
 					: -1;
-			nextIndex = Math.max(0, Math.min(resolvedMediaItems.length - 1, activeIndex + direction));
+			swipeDirection = direction;
+			nextIndex = getWrappedIndex(activeIndex + direction, resolvedMediaItems.length);
 		}
 
 		setIsDragging(false);
 		setDragOffsetPx(0);
 		if (nextIndex !== activeIndex) {
-			setActiveIndex(nextIndex);
+			const wrappedFromLastToFirst =
+				swipeDirection === 1 &&
+				activeIndex === resolvedMediaItems.length - 1 &&
+				nextIndex === 0;
+			const wrappedFromFirstToLast =
+				swipeDirection === -1 &&
+				activeIndex === 0 &&
+				nextIndex === resolvedMediaItems.length - 1;
+			goToPageWithPrefetch(nextIndex, {
+				movedForward: swipeDirection === 1,
+				disableTransition: wrappedFromLastToFirst || wrappedFromFirstToLast,
+			});
 		}
 		swipeStateRef.current = null;
 	}
@@ -251,7 +313,7 @@ export function FeedPostMediaCarousel({
 				}}
 			>
 				<div
-					className={`flex h-full ${isDragging ? "" : "transition-transform duration-300 ease-out"}`}
+					className={`flex h-full ${isDragging || !trackTransitionEnabled ? "" : "transition-transform duration-300 ease-out"}`}
 					style={{
 						transform: `translate3d(calc(${-activeIndex * 100}% + ${dragOffsetPx}px), 0, 0)`,
 					}}
@@ -260,7 +322,10 @@ export function FeedPostMediaCarousel({
 							const slideKey = `post-${postId}-slide-${index + 1}`;
 							const slideImageSource = item.source_url || item.transformed_image_url;
 							const isActiveSlide = index === activeIndex;
-							const shouldRenderSlide = Math.abs(index - activeIndex) <= 1;
+							const shouldRenderSlide =
+								index === activeIndex ||
+								index === wrappedPrevIndex ||
+								index === wrappedNextIndex;
 						if (!shouldRenderSlide) {
 							return (
 								<div key={slideKey} className="relative h-full w-full shrink-0" />
@@ -333,7 +398,11 @@ export function FeedPostMediaCarousel({
 								<button
 									key={`post-${postId}-page-dot-${index + 1}`}
 									type="button"
-									onClick={() => goToPage(index)}
+									onClick={() =>
+										goToPageWithPrefetch(index, {
+											movedForward: index > activeIndex,
+										})
+									}
 									aria-label={`Go to image page ${index + 1}`}
 									aria-current={isActive ? "true" : undefined}
 								className={`rounded-full transition-all ${isActive ? "h-2.5 w-5" : "h-2.5 w-2.5"}`}

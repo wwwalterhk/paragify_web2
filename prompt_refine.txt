@@ -1,0 +1,11 @@
+Refine the hong kong style wording to make the audience more enjoyable and smooth reading, 
+while keep the original writing style, 
+you may help to update the content color or give image url (only if the original doesn't have url, 
+not too much, ensure the url is reachable before give me) to fit the content atmosphere, 
+preserver the preview version with _prev suffix, e.g. url_prev, content_prev for compare: 
+
+
+generate a IG cover image in 1080x1450 size and scale 
+(leave a black 100 pixal height margin at the bottom, i will need to add my own text), 
+using the below text and image (must use my image):
+

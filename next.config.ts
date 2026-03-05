@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
 	images: {
 		loader: "custom",
 		loaderFile: "./src/lib/cf-image-loader.ts",
-		deviceSizes: [200, 320, 768, 1024, 1200],
+		deviceSizes: [200, 320, 768, 1024],
 		imageSizes: [128, 384],
 		remotePatterns: [
 			{ protocol: "https", hostname: "lh3.googleusercontent.com" },

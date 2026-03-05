@@ -13,7 +13,7 @@ type AdminUserRow = {
 	role: string | null;
 };
 
-type PreparePostRow = {
+type RefinedPreparePostRow = {
 	post_id: number;
 	user_pk: number;
 	post_slug: string | null;
@@ -22,7 +22,6 @@ type PreparePostRow = {
 	prepare_status: string | null;
 	visibility: string;
 	prepare_content: string | null;
-	prepare_content_refined: string | null;
 	refine_prepare_content: number;
 	prepare_url: string | null;
 	prepare_plan: string | null;
@@ -148,7 +147,7 @@ export async function GET(request: Request) {
       p.prepare_status = 'prepare_content_batch_done'
       AND p.visibility = 'prepare'
       AND p.prepare_content IS NOT NULL
-      AND trim(p.prepare_content) <> ''
+      AND p.refine_prepare_content = 1
     `,
 		];
 		const whereBindings: Array<number> = [];
@@ -175,7 +174,6 @@ export async function GET(request: Request) {
             p.prepare_status,
             p.visibility,
             p.prepare_content,
-            p.prepare_content_refined,
             p.refine_prepare_content,
             p.prepare_url,
             p.prepare_plan,
@@ -191,7 +189,7 @@ export async function GET(request: Request) {
           LIMIT ? OFFSET ?`,
 			)
 			.bind(...whereBindings, limit, offset)
-			.all<PreparePostRow>();
+			.all<RefinedPreparePostRow>();
 
 		const posts = postsResult.results ?? [];
 		const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
@@ -209,6 +207,10 @@ export async function GET(request: Request) {
 				next_page: hasMore ? page + 1 : null,
 			},
 			filters: {
+				prepare_status: "prepare_content_batch_done",
+				visibility: "prepare",
+				require_prepare_content_non_null: true,
+				refine_prepare_content: 1,
 				prepare_post_id_cnt: preparePostIdCnt,
 			},
 		});
@@ -216,7 +218,7 @@ export async function GET(request: Request) {
 		return NextResponse.json(
 			{
 				ok: false,
-				message: error instanceof Error ? error.message : "Failed to load prepare-content posts",
+				message: error instanceof Error ? error.message : "Failed to load refined prepare-content posts",
 			},
 			{ status: 500 },
 		);

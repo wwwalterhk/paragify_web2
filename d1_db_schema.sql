@@ -291,6 +291,8 @@ CREATE TABLE IF NOT EXISTS posts (
   prepare_status TEXT, -- fetch_url, fetch_url_done, process_media, process_media_done, ready
   prepare_url    TEXT, 
   prepare_content    TEXT, 
+  prepare_content_refined    TEXT, 
+  refine_prepare_content INTEGER, -- 0/1 whether the prepare_content has been refined/rewritten by Gemini
   prepare_plan    TEXT, 
   prepare_mode    TEXT, -- gemini operation mode, e.g. fast, thiking, pro
   ig_ref        TEXT, -- instagram reference ID if published to IG
