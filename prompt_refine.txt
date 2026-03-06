@@ -5,7 +5,11 @@ not too much, ensure the url is reachable before give me) to fit the content atm
 preserver the preview version with _prev suffix, e.g. url_prev, content_prev for compare: 
 
 
-generate a IG cover image in 1080x1450 size and scale 
-(leave a black 100 pixal height margin at the bottom, i will need to add my own text), 
-using the below text and image (must use my image):
+Generate a IG magazine style cover image in 1080x1470 size and scale ot standout in decent and stylish way,
+first you render a 1080x1470 canvas with a pure black 120 pixal height area at bottom, 
+then render the content image in the 1080x1350 area above the 120 pixal bottom,
+"must" leave a pure black 120 pixal height margin at the bottom, i will need to add my own text, in addition, the bottom margin in the allowed render area is 40px, 
+using the below text and image (must use my image, you may crop or enhance the resolution of my image or apply effect for better result, or use a very similar image if it is not related to a factual depict), 
+no need to show the full image, adjust the main image size to adapt the design,
+font size cannot be too small, no dimension marking, must include all the information in the below json, and only render each content once:
 

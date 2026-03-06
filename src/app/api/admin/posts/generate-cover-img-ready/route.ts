@@ -13,17 +13,16 @@ type AdminUserRow = {
 	role: string | null;
 };
 
-type PreparePostRow = {
+type GenerateCoverImgReadyPostRow = {
 	post_id: number;
 	user_pk: number;
 	post_slug: string | null;
-	prepare_post_id_cnt: number;
 	title: string | null;
 	prepare_status: string | null;
 	visibility: string;
 	prepare_content: string | null;
 	prepare_content_refined: string | null;
-	refine_prepare_content: number;
+	refine_prepare_content: number | null;
 	cover_img_url: string | null;
 	generate_cover_img: number;
 	prepare_url: string | null;
@@ -34,13 +33,6 @@ type PreparePostRow = {
 	author_name: string | null;
 	author_handle: string | null;
 };
-
-const PREPARE_POST_ID_CNT_SQL = `(
-  SELECT COUNT(1)
-  FROM posts p2
-  WHERE p2.prepare_post_id = p.post_id
-    AND p2.visibility = 'public'
-)`;
 
 function readString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -53,10 +45,10 @@ function toPositiveInt(value: string | null, fallback: number): number {
 	return Math.floor(parsed);
 }
 
-function toOptionalNonNegativeInt(value: string | null): number | null {
+function toOptionalInteger(value: string | null): number | null {
 	if (value === null) return null;
 	const parsed = Number(value);
-	if (!Number.isFinite(parsed) || parsed < 0) return null;
+	if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
 	return Math.floor(parsed);
 }
 
@@ -139,26 +131,20 @@ export async function GET(request: Request) {
 		const page = toPositiveInt(requestUrl.searchParams.get("page"), 1);
 		const limit = Math.min(toPositiveInt(requestUrl.searchParams.get("limit"), 20), 100);
 		const offset = (page - 1) * limit;
-		const preparePostIdCntRaw = readString(requestUrl.searchParams.get("prepare_post_id_cnt"));
-		const preparePostIdCnt = toOptionalNonNegativeInt(preparePostIdCntRaw);
-		if (preparePostIdCntRaw !== null && preparePostIdCnt === null) {
-			return NextResponse.json({ ok: false, message: "prepare_post_id_cnt must be a non-negative integer" }, { status: 400 });
+		const generateCoverImgRaw = readString(requestUrl.searchParams.get("generate_cover_img"));
+		const generateCoverImg = toOptionalInteger(generateCoverImgRaw);
+		if (generateCoverImgRaw !== null && generateCoverImg === null) {
+			return NextResponse.json({ ok: false, message: "generate_cover_img must be an integer" }, { status: 400 });
 		}
+		const generateCoverImgFilter = generateCoverImg ?? 1;
 
-		const whereConditions = [
-			`
-      p.prepare_status = 'prepare_content_batch_done'
-      AND p.visibility = 'prepare'
+		const whereClause = `
+      p.visibility = 'prepare'
       AND p.prepare_content IS NOT NULL
       AND trim(p.prepare_content) <> ''
-    `,
-		];
-		const whereBindings: Array<number> = [];
-		if (preparePostIdCnt !== null) {
-			whereConditions.push(`AND ${PREPARE_POST_ID_CNT_SQL} = ?`);
-			whereBindings.push(preparePostIdCnt);
-		}
-		const whereClause = whereConditions.join("\n");
+      AND p.generate_cover_img = ?
+    `;
+		const whereBindings: Array<number> = [generateCoverImgFilter];
 
 		const totalRow = await db
 			.prepare(`SELECT COUNT(1) AS total FROM posts p WHERE ${whereClause}`)
@@ -172,7 +158,6 @@ export async function GET(request: Request) {
             p.post_id,
             p.user_pk,
             p.post_slug,
-            ${PREPARE_POST_ID_CNT_SQL} AS prepare_post_id_cnt,
             p.title,
             p.prepare_status,
             p.visibility,
@@ -195,7 +180,7 @@ export async function GET(request: Request) {
           LIMIT ? OFFSET ?`,
 			)
 			.bind(...whereBindings, limit, offset)
-			.all<PreparePostRow>();
+			.all<GenerateCoverImgReadyPostRow>();
 
 		const posts = postsResult.results ?? [];
 		const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
@@ -213,14 +198,16 @@ export async function GET(request: Request) {
 				next_page: hasMore ? page + 1 : null,
 			},
 			filters: {
-				prepare_post_id_cnt: preparePostIdCnt,
+				visibility: "prepare",
+				require_prepare_content_non_empty: true,
+				generate_cover_img: generateCoverImgFilter,
 			},
 		});
 	} catch (error) {
 		return NextResponse.json(
 			{
 				ok: false,
-				message: error instanceof Error ? error.message : "Failed to load prepare-content posts",
+				message: error instanceof Error ? error.message : "Failed to load generate-cover-img posts",
 			},
 			{ status: 500 },
 		);

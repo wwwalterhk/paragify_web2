@@ -1,17 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { jwtVerify } from "jose";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth-options";
 
-type DbBindings = CloudflareEnv & { DB?: D1Database; JWT_SECRET?: string };
-
-type AdminUserRow = {
-	user_pk: number;
-	user_id: string | null;
-	email: string;
-	role: string | null;
-};
+type DbBindings = CloudflareEnv & { DB?: D1Database };
 
 type RefinedPreparePostRow = {
 	post_id: number;
@@ -57,54 +47,11 @@ function toOptionalNonNegativeInt(value: string | null): number | null {
 	return Math.floor(parsed);
 }
 
-async function resolveEmail(req: Request, env: DbBindings, db: D1Database): Promise<string | null> {
-	// Cookie session
-	try {
-		const session = await getServerSession(authOptions);
-		const email = readString(session?.user?.email);
-		if (email) return email.toLowerCase();
-	} catch {
-		// ignore and fallback to bearer token
-	}
-
-	// Bearer token (HS256 credentials token)
-	const authorization = req.headers.get("authorization") || "";
-	if (!authorization.toLowerCase().startsWith("bearer ")) {
-		return null;
-	}
-
-	const token = authorization.slice(7).trim();
-	if (!token) return null;
-
-	const jwtSecret = readString(env.JWT_SECRET) ?? readString(process.env.JWT_SECRET);
-	if (!jwtSecret) return null;
-
-	try {
-		const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret), {
-			algorithms: ["HS256"],
-			clockTolerance: "120s",
-		});
-		const email = readString(payload.email)?.toLowerCase();
-		const jti = readString(payload.jti);
-		if (!email || !jti) return null;
-
-		const sessionRow = await db
-			.prepare(
-				`SELECT 1
-           FROM user_sessions us
-           JOIN users u ON us.user_pk = u.user_pk
-          WHERE us.session_token = ?
-            AND us.expires_at > datetime('now')
-            AND lower(u.email) = ?
-          LIMIT 1`,
-			)
-			.bind(jti, email)
-			.first<{ 1: number }>();
-
-		return sessionRow ? email : null;
-	} catch {
-		return null;
-	}
+function toOptionalInteger(value: string | null): number | null {
+	if (value === null) return null;
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return null;
+	return Math.floor(parsed);
 }
 
 export async function GET(request: Request) {
@@ -116,22 +63,6 @@ export async function GET(request: Request) {
 			return NextResponse.json({ ok: false, message: "DB unavailable" }, { status: 500 });
 		}
 
-		const email = await resolveEmail(request, bindings, db);
-		if (!email) {
-			return NextResponse.json({ ok: false, message: "Unauthorized" }, { status: 401 });
-		}
-
-		const adminUser = await db
-			.prepare("SELECT user_pk, user_id, email, role FROM users WHERE lower(email) = ? LIMIT 1")
-			.bind(email)
-			.first<AdminUserRow>();
-		if (!adminUser?.user_pk) {
-			return NextResponse.json({ ok: false, message: "User not found" }, { status: 404 });
-		}
-		if ((adminUser.role ?? "").toLowerCase() !== "admin") {
-			return NextResponse.json({ ok: false, message: "Forbidden" }, { status: 403 });
-		}
-
 		const requestUrl = new URL(request.url);
 		const page = toPositiveInt(requestUrl.searchParams.get("page"), 1);
 		const limit = Math.min(toPositiveInt(requestUrl.searchParams.get("limit"), 20), 100);
@@ -141,16 +72,22 @@ export async function GET(request: Request) {
 		if (preparePostIdCntRaw !== null && preparePostIdCnt === null) {
 			return NextResponse.json({ ok: false, message: "prepare_post_id_cnt must be a non-negative integer" }, { status: 400 });
 		}
+		const refinePrepareContentRaw = readString(requestUrl.searchParams.get("refine_prepare_content"));
+		const refinePrepareContent = toOptionalInteger(refinePrepareContentRaw);
+		if (refinePrepareContentRaw !== null && refinePrepareContent === null) {
+			return NextResponse.json({ ok: false, message: "refine_prepare_content must be an integer" }, { status: 400 });
+		}
+		const refinePrepareContentFilter = refinePrepareContent ?? 1;
 
 		const whereConditions = [
 			`
       p.prepare_status = 'prepare_content_batch_done'
       AND p.visibility = 'prepare'
       AND p.prepare_content IS NOT NULL
-      AND p.refine_prepare_content = 1
+      AND p.refine_prepare_content = ?
     `,
 		];
-		const whereBindings: Array<number> = [];
+		const whereBindings: Array<number> = [refinePrepareContentFilter];
 		if (preparePostIdCnt !== null) {
 			whereConditions.push(`AND ${PREPARE_POST_ID_CNT_SQL} = ?`);
 			whereBindings.push(preparePostIdCnt);
@@ -210,7 +147,7 @@ export async function GET(request: Request) {
 				prepare_status: "prepare_content_batch_done",
 				visibility: "prepare",
 				require_prepare_content_non_null: true,
-				refine_prepare_content: 1,
+				refine_prepare_content: refinePrepareContentFilter,
 				prepare_post_id_cnt: preparePostIdCnt,
 			},
 		});
