@@ -294,7 +294,11 @@ CREATE TABLE IF NOT EXISTS posts (
   prepare_content_refined    TEXT, 
   refine_prepare_content INTEGER, -- 0 = none, 1 = requested, 2 = done, 3 = failed
   cover_img_url    TEXT, 
+  heading_1_img_url    TEXT, 
+  heading_2_img_url    TEXT, 
   generate_cover_img INTEGER NOT NULL DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
+  generate_heading_1_img INTEGER NOT NULL DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
+  generate_heading_2_img INTEGER NOT NULL DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
   prepare_plan    TEXT, 
   prepare_mode    TEXT, -- gemini operation mode, e.g. fast, thiking, pro
   ig_ref        TEXT, -- instagram reference ID if published to IG

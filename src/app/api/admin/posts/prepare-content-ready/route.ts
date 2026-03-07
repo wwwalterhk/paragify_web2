@@ -26,6 +26,10 @@ type PreparePostRow = {
 	refine_prepare_content: number;
 	cover_img_url: string | null;
 	generate_cover_img: number;
+	heading_1_img_url: string | null;
+	generate_heading_1_img: number;
+	heading_2_img_url: string | null;
+	generate_heading_2_img: number;
 	prepare_url: string | null;
 	prepare_plan: string | null;
 	prepare_mode: string | null;
@@ -181,6 +185,10 @@ export async function GET(request: Request) {
             p.refine_prepare_content,
             p.cover_img_url,
             p.generate_cover_img,
+            p.heading_1_img_url,
+            p.generate_heading_1_img,
+            p.heading_2_img_url,
+            p.generate_heading_2_img,
             p.prepare_url,
             p.prepare_plan,
             p.prepare_mode,
