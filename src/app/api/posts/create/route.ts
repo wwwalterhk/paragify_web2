@@ -24,6 +24,11 @@ type PostPageInput = {
 	bg_media_url: string | null;
 };
 
+type PrepareSourcePostRow = {
+	post_id: number;
+	locale: string | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		return null;
@@ -448,7 +453,21 @@ export async function POST(request: Request) {
 			return NextResponse.json({ error: "D1 binding `DB` is not configured." }, { status: 500 });
 		}
 
-		const locale = toOptionalString(body.locale) ?? parseLocaleFromAcceptLanguage(request.headers.get("accept-language"));
+		const requestedLocale = toOptionalString(body.locale) ?? parseLocaleFromAcceptLanguage(request.headers.get("accept-language"));
+		let inheritedPrepareLocale: string | null = null;
+		if (preparePostId !== null) {
+			const prepareSourcePost = await db
+				.prepare("SELECT post_id, locale FROM posts WHERE post_id = ? LIMIT 1")
+				.bind(preparePostId)
+				.first<PrepareSourcePostRow>();
+
+			if (!prepareSourcePost?.post_id) {
+				return NextResponse.json({ error: "prepare_post_id not found." }, { status: 404 });
+			}
+
+			inheritedPrepareLocale = toOptionalString(prepareSourcePost.locale);
+		}
+		const locale = inheritedPrepareLocale ?? requestedLocale;
 		const fallbackCaption = toOptionalString(body.caption);
 		const showPageContentInput = toOptionalInteger(body.show_page_content);
 		const showPageContent = showPageContentInput === 0 ? 0 : 1;

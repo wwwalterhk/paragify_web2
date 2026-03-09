@@ -31,11 +31,13 @@ type PreparePostRow = {
 	updated_at: string | null;
 	author_name: string | null;
 	author_handle: string | null;
+	author_site: string | null;
 };
 
 type CreatePrepareRequestBody = {
 	prepare_url?: unknown;
 	user_pk?: unknown;
+	brand_slug?: unknown;
 };
 
 type UpdatePrepareRequestBody = {
@@ -179,6 +181,7 @@ export async function POST(request: Request) {
 		const body = (await request.json().catch(() => null)) as CreatePrepareRequestBody | null;
 		const prepareUrl = readString(body?.prepare_url);
 		const userPk = parseBodyUserPk(body?.user_pk);
+		const brandSlug = readString(body?.brand_slug)?.toLowerCase() ?? null;
 
 		if (!prepareUrl) {
 			return NextResponse.json({ ok: false, message: "prepare_url is required" }, { status: 400 });
@@ -196,18 +199,27 @@ export async function POST(request: Request) {
 		}
 		const writingLocale = readString(userExists.writing_locale);
 
-		const insertResult = await db
-			.prepare(
-				`INSERT INTO posts (user_pk, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
-         VALUES (?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
-			)
-			.bind(userPk, writingLocale, prepareUrl)
-			.run();
+		const insertResult = brandSlug
+			? await db
+					.prepare(
+						`INSERT INTO posts (user_pk, brand_slug, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
+					)
+					.bind(userPk, brandSlug, writingLocale, prepareUrl)
+					.run()
+			: await db
+					.prepare(
+						`INSERT INTO posts (user_pk, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
+           VALUES (?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
+					)
+					.bind(userPk, writingLocale, prepareUrl)
+					.run();
 
 		return NextResponse.json({
 			ok: true,
 			post_id: insertResult.meta?.last_row_id ?? null,
 			user_pk: userPk,
+			brand_slug: brandSlug,
 			locale: writingLocale,
 			prepare_url: prepareUrl,
 			prepare_status: "fetch_url",
@@ -354,7 +366,8 @@ export async function GET(request: Request) {
             p.created_at,
             p.updated_at,
             u.name AS author_name,
-            u.user_id AS author_handle
+            u.user_id AS author_handle,
+            u.site AS author_site
           FROM posts p
           LEFT JOIN users u ON u.user_pk = p.user_pk
           WHERE ${whereClause}

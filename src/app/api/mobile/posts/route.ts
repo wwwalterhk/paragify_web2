@@ -12,6 +12,12 @@ type PostListRow = {
 	post_slug: string | null;
 	caption: string | null;
 	prepare_content: string | null;
+	cover_img_url: string | null;
+	generate_cover_img: number | null;
+	heading_1_img_url: string | null;
+	generate_heading_1_img: number | null;
+	heading_2_img_url: string | null;
+	generate_heading_2_img: number | null;
 	created_at: string | null;
 	like_count: number | null;
 	comment_count: number | null;
@@ -350,6 +356,12 @@ export async function GET(request: Request) {
             p.post_slug,
             p.caption,
             p.prepare_content,
+            p.cover_img_url,
+            p.generate_cover_img,
+            p.heading_1_img_url,
+            p.generate_heading_1_img,
+            p.heading_2_img_url,
+            p.generate_heading_2_img,
             p.created_at,
             p.like_count,
             p.comment_count,
@@ -457,6 +469,12 @@ export async function GET(request: Request) {
 			post_slug: row.post_slug,
 			caption: row.caption,
 			prepare_content: row.prepare_content,
+			cover_img_url: row.cover_img_url,
+			generate_cover_img: row.generate_cover_img,
+			heading_1_img_url: row.heading_1_img_url,
+			generate_heading_1_img: row.generate_heading_1_img,
+			heading_2_img_url: row.heading_2_img_url,
+			generate_heading_2_img: row.generate_heading_2_img,
 			created_at: row.created_at,
 			like_count: row.like_count ?? 0,
 			comment_count: row.comment_count ?? 0,

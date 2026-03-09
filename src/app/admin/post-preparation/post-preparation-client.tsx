@@ -14,6 +14,7 @@ type PreparePostRow = {
 	updated_at: string | null;
 	author_name: string | null;
 	author_handle: string | null;
+	author_site: string | null;
 };
 
 type PreparePaging = { 
@@ -35,6 +36,7 @@ type LoadPreparePostsResponse = {
 type WritingProfileUser = {
 	user_pk: number;
 	user_id: string | null;
+	site: string | null;
 	name: string | null;
 	avatar_url: string | null;
 	writing_style: string;

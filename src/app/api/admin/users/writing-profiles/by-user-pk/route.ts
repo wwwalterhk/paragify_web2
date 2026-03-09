@@ -6,6 +6,7 @@ type DbBindings = CloudflareEnv & { DB?: D1Database };
 type WritingProfileRow = {
 	user_pk: number;
 	user_id: string | null;
+	site: string | null;
 	name: string | null;
 	avatar_url: string | null;
 	writing_style: string;
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
 				`SELECT
             user_pk,
             user_id,
+            site,
             name,
             avatar_url,
             writing_style,

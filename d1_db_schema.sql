@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   locale TEXT DEFAULT 'zh-hk',
   writing_style TEXT, -- e.g. concise, detailed, humorous
   writing_locale TEXT, -- e.g. zh-hk, en-us
+  site TEXT, -- e.g. 328car.com, if not null, it is a account from a specific site (e.g. sync to other site users)
   role TEXT DEFAULT 'user', -- user, dealer, admin
   status TEXT DEFAULT 'active', -- active, disabled
   last_login_from TEXT,
@@ -287,6 +288,7 @@ CREATE TABLE IF NOT EXISTS posts (
   custom_content TEXT, -- custom text appended after page content
   sell       INTEGER DEFAULT 0, -- 0/1 if this post is a sell
   title          TEXT,
+  brand_slug     TEXT,
   model_name     TEXT,
   prepare_status TEXT, -- fetch_url, fetch_url_done, process_media, process_media_done, ready
   prepare_url    TEXT, 
@@ -318,6 +320,45 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_pk, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_slug ON posts(post_slug);
+
+CREATE INDEX IF NOT EXISTS idx_posts_prepare_content_ready_page
+ON posts(updated_at DESC, post_id DESC)
+WHERE visibility = 'prepare'
+  AND prepare_status = 'prepare_content_batch_done'
+  AND prepare_content IS NOT NULL
+  AND trim(prepare_content) <> '';
+
+CREATE INDEX IF NOT EXISTS idx_posts_prepare_post_public
+ON posts(prepare_post_id)
+WHERE visibility = 'public';
+
+
+CREATE INDEX IF NOT EXISTS idx_posts_public_feed
+ON posts(post_id DESC)
+WHERE visibility = 'public';
+
+CREATE INDEX IF NOT EXISTS idx_posts_public_user_feed
+ON posts(user_pk, post_id DESC)
+WHERE visibility = 'public';
+
+CREATE INDEX IF NOT EXISTS idx_posts_public_locale_feed
+ON posts(lower(locale), post_id DESC)
+WHERE visibility = 'public' AND locale IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_post_saves_user_post
+ON post_saves(user_pk, post_id);
+
+CREATE INDEX IF NOT EXISTS idx_posts_prepare_post_any
+ON posts(prepare_post_id)
+WHERE prepare_post_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_posts_prepare_content_ready_user_page
+ON posts(user_pk, updated_at DESC, post_id DESC)
+WHERE visibility = 'prepare'
+  AND prepare_status = 'prepare_content_batch_done'
+  AND prepare_content IS NOT NULL
+  AND trim(prepare_content) <> '';
+
 
 -- Migration for existing databases (run once, separately from full schema bootstrap):
 -- ALTER TABLE posts ADD COLUMN show_page_content INTEGER NOT NULL DEFAULT 1;

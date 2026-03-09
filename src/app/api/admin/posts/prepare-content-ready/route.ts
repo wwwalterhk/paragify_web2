@@ -17,6 +17,7 @@ type PreparePostRow = {
 	post_id: number;
 	user_pk: number;
 	post_slug: string | null;
+	brand_slug: string | null;
 	prepare_post_id_cnt: number;
 	title: string | null;
 	prepare_status: string | null;
@@ -37,13 +38,14 @@ type PreparePostRow = {
 	updated_at: string | null;
 	author_name: string | null;
 	author_handle: string | null;
+	author_site: string | null;
+	author_writing_locale: string | null;
 };
 
 const PREPARE_POST_ID_CNT_SQL = `(
   SELECT COUNT(1)
   FROM posts p2
   WHERE p2.prepare_post_id = p.post_id
-    AND p2.visibility = 'public'
 )`;
 
 function readString(value: unknown): string | null {
@@ -61,6 +63,13 @@ function toOptionalNonNegativeInt(value: string | null): number | null {
 	if (value === null) return null;
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed) || parsed < 0) return null;
+	return Math.floor(parsed);
+}
+
+function toOptionalPositiveInt(value: string | null): number | null {
+	if (value === null) return null;
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed <= 0) return null;
 	return Math.floor(parsed);
 }
 
@@ -148,6 +157,11 @@ export async function GET(request: Request) {
 		if (preparePostIdCntRaw !== null && preparePostIdCnt === null) {
 			return NextResponse.json({ ok: false, message: "prepare_post_id_cnt must be a non-negative integer" }, { status: 400 });
 		}
+		const userPkRaw = readString(requestUrl.searchParams.get("userPk") ?? requestUrl.searchParams.get("user_pk"));
+		const userPk = toOptionalPositiveInt(userPkRaw);
+		if (userPkRaw !== null && userPk === null) {
+			return NextResponse.json({ ok: false, message: "userPk must be a positive integer" }, { status: 400 });
+		}
 
 		const whereConditions = [
 			`
@@ -161,6 +175,10 @@ export async function GET(request: Request) {
 		if (preparePostIdCnt !== null) {
 			whereConditions.push(`AND ${PREPARE_POST_ID_CNT_SQL} = ?`);
 			whereBindings.push(preparePostIdCnt);
+		}
+		if (userPk !== null) {
+			whereConditions.push(`AND p.user_pk = ?`);
+			whereBindings.push(userPk);
 		}
 		const whereClause = whereConditions.join("\n");
 
@@ -176,6 +194,7 @@ export async function GET(request: Request) {
             p.post_id,
             p.user_pk,
             p.post_slug,
+            p.brand_slug,
             ${PREPARE_POST_ID_CNT_SQL} AS prepare_post_id_cnt,
             p.title,
             p.prepare_status,
@@ -195,7 +214,9 @@ export async function GET(request: Request) {
             p.created_at,
             p.updated_at,
             u.name AS author_name,
-            u.user_id AS author_handle
+            u.user_id AS author_handle,
+            u.site AS author_site,
+            u.writing_locale AS author_writing_locale
           FROM posts p
           LEFT JOIN users u ON u.user_pk = p.user_pk
           WHERE ${whereClause}
@@ -222,6 +243,7 @@ export async function GET(request: Request) {
 			},
 			filters: {
 				prepare_post_id_cnt: preparePostIdCnt,
+				user_pk: userPk,
 			},
 		});
 	} catch (error) {
