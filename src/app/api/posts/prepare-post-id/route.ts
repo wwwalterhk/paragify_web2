@@ -34,9 +34,6 @@ async function handleUpdatePreparePostId(request: Request) {
 	if (!preparePostId) {
 		return NextResponse.json({ ok: false, message: "invalid prepare_post_id" }, { status: 400 });
 	}
-	if (postId === preparePostId) {
-		return NextResponse.json({ ok: false, message: "prepare_post_id cannot equal post_id" }, { status: 400 });
-	}
 
 	const { env } = await getCloudflareContext({ async: true });
 	const db = (env as CloudflareEnv & { DB?: D1Database }).DB;
@@ -92,4 +89,3 @@ export async function PATCH(request: Request) {
 export function GET() {
 	return NextResponse.json({ ok: false, message: "Method not allowed" }, { status: 405 });
 }
-
