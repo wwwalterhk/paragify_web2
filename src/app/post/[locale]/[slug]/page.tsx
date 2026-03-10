@@ -618,6 +618,34 @@ function normalizeR2MediaKey(source: string): string {
 	return source.replace(/^\/+/, "");
 }
 
+function extractMediaKeyFromCdnPath(pathname: string): string | null {
+	const normalizedPath = pathname.trim();
+	if (!normalizedPath) {
+		return null;
+	}
+
+	const cdnImagePrefix = "/cdn-cgi/image/";
+	if (!normalizedPath.startsWith(cdnImagePrefix)) {
+		return normalizeR2MediaKey(normalizedPath);
+	}
+
+	const remainder = normalizedPath.slice(cdnImagePrefix.length);
+	const separatorIndex = remainder.indexOf("/");
+	if (separatorIndex < 0) {
+		return null;
+	}
+	const encodedMediaKey = remainder.slice(separatorIndex + 1);
+	if (!encodedMediaKey) {
+		return null;
+	}
+
+	try {
+		return normalizeR2MediaKey(decodeURIComponent(encodedMediaKey));
+	} catch {
+		return normalizeR2MediaKey(encodedMediaKey);
+	}
+}
+
 function selectImageCdnOrigin(mediaKey: string): string {
 	const normalizedKey = normalizeR2MediaKey(mediaKey);
 	let hash = 0;
@@ -660,11 +688,21 @@ function getR2MediaKeyFromSources(mediaUrl: string | null, rawMediaUrl: string |
 			}
 		}
 
+		if (source.startsWith("/cdn-cgi/image/")) {
+			const mediaKey = extractMediaKeyFromCdnPath(source);
+			if (mediaKey) {
+				return mediaKey;
+			}
+		}
+
 		if (source.startsWith("http://") || source.startsWith("https://")) {
 			try {
 				const url = new URL(source);
 				if (IMAGE_CDN_HOSTNAMES.has(url.hostname)) {
-					return normalizeR2MediaKey(url.pathname);
+					const mediaKey = extractMediaKeyFromCdnPath(url.pathname);
+					if (mediaKey) {
+						return mediaKey;
+					}
 				}
 			} catch {
 				return null;
