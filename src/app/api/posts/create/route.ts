@@ -27,6 +27,8 @@ type PostPageInput = {
 type PrepareSourcePostRow = {
 	post_id: number;
 	locale: string | null;
+	cover_img_url: string | null;
+	generate_cover_img: number | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -455,9 +457,11 @@ export async function POST(request: Request) {
 
 		const requestedLocale = toOptionalString(body.locale) ?? parseLocaleFromAcceptLanguage(request.headers.get("accept-language"));
 		let inheritedPrepareLocale: string | null = null;
+		let inheritedPrepareCoverImgUrl: string | null = null;
+		let inheritedPrepareGenerateCoverImg = 0;
 		if (preparePostId !== null) {
 			const prepareSourcePost = await db
-				.prepare("SELECT post_id, locale FROM posts WHERE post_id = ? LIMIT 1")
+				.prepare("SELECT post_id, locale, cover_img_url, generate_cover_img FROM posts WHERE post_id = ? LIMIT 1")
 				.bind(preparePostId)
 				.first<PrepareSourcePostRow>();
 
@@ -466,6 +470,8 @@ export async function POST(request: Request) {
 			}
 
 			inheritedPrepareLocale = toOptionalString(prepareSourcePost.locale);
+			inheritedPrepareCoverImgUrl = toOptionalString(prepareSourcePost.cover_img_url);
+			inheritedPrepareGenerateCoverImg = toOptionalInteger(prepareSourcePost.generate_cover_img) ?? 0;
 		}
 		const locale = inheritedPrepareLocale ?? requestedLocale;
 		const fallbackCaption = toOptionalString(body.caption);
@@ -512,10 +518,12 @@ export async function POST(request: Request) {
 									title,
 									template_id,
 									prepare_post_id,
+									cover_img_url,
+									generate_cover_img,
 									cover_page,
 									visibility
 								)
-								VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 1, ?)
+								VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 1, ?)
 								`,
 							)
 							.bind(
@@ -529,6 +537,8 @@ export async function POST(request: Request) {
 								title,
 								templateId,
 								preparePostId,
+								inheritedPrepareCoverImgUrl,
+								inheritedPrepareGenerateCoverImg,
 								visibilityInput ?? "public",
 							)
 							.run();

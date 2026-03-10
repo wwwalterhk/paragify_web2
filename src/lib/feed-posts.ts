@@ -13,6 +13,8 @@ type PostRow = {
 	author_name: string | null;
 	author_id: string | null;
 	author_avatar: string | null;
+	cover_img_url: string | null;
+	generate_cover_img: number | null;
 	cover_media_url: string | null;
 	cover_raw_media_url: string | null;
 	cover_media_type: string | null;
@@ -176,17 +178,17 @@ function getR2MediaKeyFromSources(mediaUrl: string | null, rawMediaUrl: string |
 	return null;
 }
 
-function getFeedImageTransformOptions(_pageScale: FeedPageScale): string {
+function getFeedImageTransformOptions(): string {
 	return `width=${FEED_IMAGE_WIDTH},quality=70,format=auto`;
 }
 
-function getCloudflareTransformedImageUrl(mediaKey: string | null, pageScale: FeedPageScale): string | null {
+function getCloudflareTransformedImageUrl(mediaKey: string | null): string | null {
 	if (!mediaKey) {
 		return null;
 	}
 
 	const cdnOrigin = selectImageCdnOrigin(mediaKey);
-	const transformOptions = getFeedImageTransformOptions(pageScale);
+	const transformOptions = getFeedImageTransformOptions();
 	return `${cdnOrigin}/cdn-cgi/image/${transformOptions}/${normalizeR2MediaKey(mediaKey)}`;
 }
 
@@ -200,7 +202,6 @@ function buildFeedMediaItem(
 	mediaUrl: string | null,
 	rawMediaUrl: string | null,
 	mediaType: string | null,
-	pageScale: FeedPageScale,
 ): FeedMediaItem | null {
 	const mediaKey = getR2MediaKeyFromSources(mediaUrl, rawMediaUrl);
 	if (!mediaKey) {
@@ -213,11 +214,34 @@ function buildFeedMediaItem(
 		page_num: pageNum,
 		media_type: mediaTypeNormalized,
 		source_url: `${cdnOrigin}/${mediaKey}`,
-		transformed_image_url:
-			mediaTypeNormalized === "video"
-				? null
-				: getCloudflareTransformedImageUrl(mediaKey, pageScale),
-	};
+			transformed_image_url:
+				mediaTypeNormalized === "video"
+					? null
+					: getCloudflareTransformedImageUrl(mediaKey),
+		};
+}
+
+function buildPreferredCoverMediaItem(coverImgUrl: string | null): FeedMediaItem | null {
+	const normalizedUrl = coverImgUrl?.trim() ?? "";
+	if (!normalizedUrl) {
+		return null;
+	}
+
+	const transformedMediaItem = buildFeedMediaItem(1, normalizedUrl, normalizedUrl, "image");
+	if (transformedMediaItem) {
+		return transformedMediaItem;
+	}
+
+	if (normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://") || normalizedUrl.startsWith("/")) {
+		return {
+			page_num: 1,
+			media_type: "image",
+			source_url: normalizedUrl,
+			transformed_image_url: null,
+		};
+	}
+
+	return null;
 }
 
 function toSafeLimit(limit: number | undefined): number {
@@ -276,7 +300,6 @@ function buildFeedPosts(postRows: PostRow[], pageRows: PostPageRow[]): FeedPost[
 	}
 
 	return postRows.map((post) => {
-		const pageScale = parseFeedCoverPageScale(post.cover_layout_json);
 		const mediaItems: FeedMediaItem[] = [];
 		const relatedPageRows = pagesByPostId.get(post.post_id) ?? [];
 		for (const pageRow of relatedPageRows) {
@@ -285,7 +308,6 @@ function buildFeedPosts(postRows: PostRow[], pageRows: PostPageRow[]): FeedPost[
 				pageRow.media_url,
 				pageRow.raw_media_url,
 				pageRow.media_type,
-				pageScale,
 			);
 			if (mediaItem) {
 				mediaItems.push(mediaItem);
@@ -298,10 +320,28 @@ function buildFeedPosts(postRows: PostRow[], pageRows: PostPageRow[]): FeedPost[
 				post.cover_media_url,
 				post.cover_raw_media_url,
 				post.cover_media_type,
-				pageScale,
 			);
 			if (coverMedia) {
 				mediaItems.push(coverMedia);
+			}
+		}
+
+		const shouldUseGeneratedCover =
+			Number(post.generate_cover_img ?? 0) === 2 &&
+			(post.cover_img_url?.trim() ?? "").length > 0;
+		if (shouldUseGeneratedCover) {
+			const generatedCoverMedia = buildPreferredCoverMediaItem(post.cover_img_url);
+			if (generatedCoverMedia) {
+				for (let index = 0; index < mediaItems.length; index += 1) {
+					mediaItems[index] = {
+						...mediaItems[index],
+						page_num: mediaItems[index].page_num + 1,
+					};
+				}
+				mediaItems.unshift({
+					...generatedCoverMedia,
+					page_num: 1,
+				});
 			}
 		}
 
@@ -356,6 +396,8 @@ export async function loadFeedPosts(db: D1Database, options?: LoadFeedPostsOptio
 			u.name AS author_name,
 			u.user_id AS author_id,
 			u.avatar_url AS author_avatar,
+			p.cover_img_url,
+			p.generate_cover_img,
 			cp.media_url AS cover_media_url,
 			cp.raw_media_url AS cover_raw_media_url,
 			cp.media_type AS cover_media_type,
@@ -382,6 +424,8 @@ export async function loadFeedPosts(db: D1Database, options?: LoadFeedPostsOptio
 			u.name,
 			u.user_id,
 			u.avatar_url,
+			p.cover_img_url,
+			p.generate_cover_img,
 			cp.media_url,
 			cp.raw_media_url,
 			cp.media_type,
