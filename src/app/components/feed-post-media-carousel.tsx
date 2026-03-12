@@ -18,6 +18,7 @@ type FeedPostMediaCarouselProps = {
 	pageScale: FeedPageScale;
 	pageCount: number;
 	mediaItems: FeedMediaItem[];
+	imageAltByIndex?: Array<string | null>;
 	firstImageFetchPriority?: "high" | "auto" | "low";
 };
 
@@ -52,6 +53,7 @@ export function FeedPostMediaCarousel({
 	pageScale,
 	pageCount,
 	mediaItems,
+	imageAltByIndex,
 	firstImageFetchPriority = "auto",
 }: FeedPostMediaCarouselProps) {
 	const [activeIndex, setActiveIndex] = useState(0);
@@ -318,12 +320,13 @@ export function FeedPostMediaCarousel({
 						transform: `translate3d(calc(${-activeIndex * 100}% + ${dragOffsetPx}px), 0, 0)`,
 					}}
 				>
-					{resolvedMediaItems.map((item, index) => {
-							const slideKey = `post-${postId}-slide-${index + 1}`;
-							const slideImageSource = item.source_url || item.transformed_image_url;
-							const isActiveSlide = index === activeIndex;
-							const shouldRenderSlide =
-								index === activeIndex ||
+						{resolvedMediaItems.map((item, index) => {
+								const slideKey = `post-${postId}-slide-${index + 1}`;
+								const slideImageSource = item.source_url || item.transformed_image_url;
+								const customAlt = imageAltByIndex?.[index]?.trim() || null;
+								const isActiveSlide = index === activeIndex;
+								const shouldRenderSlide =
+									index === activeIndex ||
 								index === wrappedPrevIndex ||
 								index === wrappedNextIndex;
 						if (!shouldRenderSlide) {
@@ -343,19 +346,16 @@ export function FeedPostMediaCarousel({
 										preload={isActiveSlide ? "metadata" : "none"}
 									/>
 								) : slideImageSource ? (
-									<Image
-										key={`${slideKey}-${slideImageSource}`}
-										src={slideImageSource}
-										alt={
-											postTitle
-												? `${postTitle} page ${index + 1}`
-												: `Post ${postId} page ${index + 1}`
-										}
-										fill
-										className={`object-cover transition-opacity duration-150 ${isActiveSlide && activeImagePending ? "opacity-0" : "opacity-100"}`}
-										sizes="(max-width: 820px) 100vw, 640px"
-										fetchPriority={isActiveSlide ? activeImageFetchPriority : "low"}
-										loading={isActiveSlide ? activeImageLoading : "lazy"}
+										<Image
+											key={`${slideKey}-${slideImageSource}`}
+											src={slideImageSource}
+											alt={customAlt || (postTitle ? `${postTitle} page ${index + 1}` : `Post ${postId} page ${index + 1}`)}
+											fill
+											className={`object-cover transition-opacity duration-150 ${isActiveSlide && activeImagePending ? "opacity-0" : "opacity-100"}`}
+											sizes="(max-width: 820px) 100vw, 640px"
+											quality={85}
+											fetchPriority={isActiveSlide ? activeImageFetchPriority : "low"}
+											loading={isActiveSlide ? activeImageLoading : "lazy"}
 										onLoad={() => markImageAsLoaded(slideImageSource)}
 										onError={() => {
 											if (isActiveSlide) {

@@ -142,6 +142,12 @@ const PREPARE_CONTENT_HASHTAG_LINK_STYLE: CSSProperties = {
 	color: "var(--accent-2)",
 	borderColor: "color-mix(in srgb, var(--accent-2) 35%, transparent)",
 };
+const CAPTION_HASHTAG_LINK_CLASSNAME =
+	"font-semibold text-[color:var(--accent-2)] underline-offset-2 transition-opacity hover:opacity-85 hover:underline";
+const CAPTION_HASHTAG_LINK_STYLE: CSSProperties = {
+	color: "var(--accent-2)",
+};
+const IMAGE_ALT_MAX_LENGTH = 220;
 const SITE_NAME = "Paragify";
 const DEFAULT_SITE_URL = "http://localhost:3000";
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).replace(/\/+$/, "");
@@ -248,21 +254,19 @@ function toPrepareContentHexColor(value: unknown): string | null {
 	return normalized;
 }
 
-function toTextColorStyle(value: string | null): CSSProperties | undefined {
-	return value ? { color: value } : undefined;
-}
-
-function toBackgroundColorStyle(value: string | null): CSSProperties | undefined {
-	return value ? { backgroundColor: value } : undefined;
-}
-
 function renderTextWithHashtagLinks(
 	value: string,
 	getFeedTagHref: (hashtag: string) => string,
 	keyPrefix: string,
+	options?: {
+		linkClassName?: string;
+		linkStyle?: CSSProperties;
+	},
 ): ReactNode {
 	const nodes: ReactNode[] = [];
 	const hashtagMatches = Array.from(value.matchAll(/#[\p{L}\p{N}\p{M}_]+/gu));
+	const linkClassName = options?.linkClassName ?? PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME;
+	const linkStyle = options?.linkStyle ?? PREPARE_CONTENT_HASHTAG_LINK_STYLE;
 	let cursor = 0;
 
 	for (let index = 0; index < hashtagMatches.length; index += 1) {
@@ -278,12 +282,12 @@ function renderTextWithHashtagLinks(
 			<Link
 				key={`${keyPrefix}-hashtag-${index}-${startIndex}`}
 				href={getFeedTagHref(hashtag)}
-				className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
-				style={PREPARE_CONTENT_HASHTAG_LINK_STYLE}
+				className={linkClassName}
+				style={linkStyle}
 			>
 				{hashtag}
 			</Link>,
-		);
+			);
 
 		cursor = startIndex + hashtag.length;
 	}
@@ -438,6 +442,152 @@ function parsePrepareContent(value: string | null): PrepareContentView | null {
 	}
 
 	return prepared;
+}
+
+function toMarkedHeadingText(value: string | null): string | null {
+	const trimmed = value?.trim() ?? "";
+	if (!trimmed) {
+		return null;
+	}
+	const normalized = trimmed.replace(/^##\s*/, "").replace(/\s*##$/, "");
+	return `## ${normalized} ##`;
+}
+
+function toInlineText(value: string | null): string {
+	return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function truncateAltText(value: string): string {
+	if (value.length <= IMAGE_ALT_MAX_LENGTH) {
+		return value;
+	}
+	return `${value.slice(0, IMAGE_ALT_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
+function toAltFromHeadingAndContent(heading: string | null, content: string | null): string | null {
+	const headingText = toInlineText(heading);
+	const contentText = toInlineText(content);
+	const parts = [headingText, contentText].filter(Boolean);
+	if (parts.length === 0) {
+		return null;
+	}
+	return truncateAltText(parts.join(" - "));
+}
+
+function buildPrepareContentImageAltCandidates(prepareContent: PrepareContentView | null): string[] {
+	if (!prepareContent) {
+		return [];
+	}
+
+	const candidates: string[] = [];
+	for (const headingImage of prepareContent.headingImages) {
+		const alt = toAltFromHeadingAndContent(headingImage.heading, headingImage.description);
+		if (alt) {
+			candidates.push(alt);
+		}
+	}
+
+	for (const paragraph of prepareContent.paragraphs) {
+		if (paragraph.type === "hashtags") {
+			const hashtags = paragraph.hashtags.join(" ");
+			const hashtagsInline = toInlineText(hashtags);
+			if (hashtagsInline) {
+				candidates.push(truncateAltText(hashtagsInline));
+			}
+			continue;
+		}
+
+		const alt = toAltFromHeadingAndContent(paragraph.heading, paragraph.content);
+		if (alt) {
+			candidates.push(alt);
+		}
+	}
+
+	if (candidates.length === 0) {
+		const fallbackAlt = toAltFromHeadingAndContent(prepareContent.title, prepareContent.subtitle ?? prepareContent.footerLine);
+		if (fallbackAlt) {
+			candidates.push(fallbackAlt);
+		}
+	}
+
+	return candidates;
+}
+
+function buildMediaImageAltByIndex(
+	mediaItems: FeedMediaItem[],
+	prepareContent: PrepareContentView | null,
+	postTitle: string | null,
+): Array<string | null> {
+	const candidates = buildPrepareContentImageAltCandidates(prepareContent);
+	const fallbackTitle = toInlineText(postTitle) || "Post image";
+	let imageCursor = 0;
+
+	return mediaItems.map((item, index) => {
+		if (item.media_type !== "image") {
+			return null;
+		}
+
+		const candidateAlt = candidates[imageCursor] ?? null;
+		imageCursor += 1;
+		if (candidateAlt) {
+			return candidateAlt;
+		}
+
+		return `${fallbackTitle} page ${index + 1}`;
+	});
+}
+
+function toIgCaptionText(prepareContent: PrepareContentView | null): string {
+	if (!prepareContent) {
+		return "";
+	}
+
+	const sections: string[] = [];
+	const pushSection = (value: string | null) => {
+		const trimmed = value?.trim() ?? "";
+		if (trimmed) {
+			sections.push(trimmed);
+		}
+	};
+
+	pushSection(prepareContent.eyebrow);
+	const markedTitle = toMarkedHeadingText(prepareContent.title);
+	if (markedTitle) {
+		sections.push(markedTitle);
+	}
+	pushSection(prepareContent.subtitle);
+	pushSection(prepareContent.footerLine);
+	if (prepareContent.headingHashtags.length > 0) {
+		sections.push(prepareContent.headingHashtags.join(" "));
+	}
+
+	for (const headingImage of prepareContent.headingImages) {
+		const markedHeadingImageTitle = toMarkedHeadingText(headingImage.heading);
+		if (markedHeadingImageTitle) {
+			sections.push(markedHeadingImageTitle);
+		}
+		pushSection(headingImage.description);
+	}
+
+	for (const paragraph of prepareContent.paragraphs) {
+		const markedParagraphHeading = toMarkedHeadingText(paragraph.heading);
+		if (markedParagraphHeading) {
+			sections.push(markedParagraphHeading);
+		}
+		if (paragraph.type === "hashtags") {
+			if (paragraph.hashtags.length > 0) {
+				sections.push(paragraph.hashtags.join(" "));
+			}
+			continue;
+		}
+
+		pushSection(paragraph.content);
+		if (paragraph.type !== "image") {
+			pushSection(paragraph.url);
+		}
+	}
+
+	return sections.join("\n\n");
 }
 
 function toPrepareContentImageUrl(value: string | null): string | null {
@@ -1008,8 +1158,9 @@ export default async function PostDetailPage({ params }: PageProps) {
 	const initials = getAvatarInitials(handle);
 	const trimmedCaption = post.caption?.trim() ?? "";
 	const prepareContent = parsePrepareContent(post.prepare_content);
-	const headingImages = prepareContent?.headingImages ?? [];
-	const { content } = parseCaption(trimmedCaption);
+	const igCaptionFromPrepareContent = toIgCaptionText(prepareContent);
+	const igCaptionContent = igCaptionFromPrepareContent || trimmedCaption;
+	const mediaImageAltByIndex = buildMediaImageAltByIndex(mediaItems, prepareContent, post.title);
 	const getFeedTagHref = (hashtag: string) => `/?tag=${encodeURIComponent(hashtag.replace(/^#/, ""))}`;
 	const slugRef = getPostSlugRef(post);
 	const canonicalUrl = toAbsoluteUrl(buildPostPath(lang, slugRef));
@@ -1149,13 +1300,14 @@ export default async function PostDetailPage({ params }: PageProps) {
 						) : null}
 					</div>
 
-					<FeedPostMediaCarousel
-						postId={post.post_id}
-						postTitle={post.title}
-						pageScale={pageScale}
-						pageCount={pageCount}
-						mediaItems={mediaItems}
-					/>
+						<FeedPostMediaCarousel
+							postId={post.post_id}
+							postTitle={post.title}
+							pageScale={pageScale}
+							pageCount={pageCount}
+							mediaItems={mediaItems}
+							imageAltByIndex={mediaImageAltByIndex}
+						/>
 
 					<div className="space-y-3 px-4 pb-4 pt-3">
 						<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] uppercase tracking-wide text-[color:var(--txt-3)]">
@@ -1175,204 +1327,18 @@ export default async function PostDetailPage({ params }: PageProps) {
 							) : null}
 						</div>
 
-						{prepareContent ? (
-							<div className="space-y-4 text-[15px] leading-6 text-[color:var(--txt-2)]">
-								{prepareContent.eyebrow ||
-								prepareContent.title ||
-								prepareContent.subtitle ||
-								prepareContent.footerLine ||
-								prepareContent.headingHashtags.length > 0 ? (
-									<header
-										className="relative overflow-hidden rounded-2xl border px-4 py-3.5 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.9)] sm:px-5 sm:py-4"
-										style={{
-											borderColor: "color-mix(in srgb, var(--surface-border) 92%, transparent)",
-											backgroundImage:
-												"linear-gradient(145deg, color-mix(in srgb, var(--surface) 88%, var(--bg-3) 12%) 0%, color-mix(in srgb, var(--cell-3) 78%, var(--surface) 22%) 100%)",
-										}}
-									>
-										<div
-											className="pointer-events-none absolute -right-12 -top-14 h-32 w-32 rounded-full blur-2xl"
-											style={{ backgroundColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)" }}
-											aria-hidden
-										/>
-										<div className="relative space-y-2.5">
-											{prepareContent.eyebrow ? (
-												<p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[color:var(--accent-2)]">
-													{renderTextWithHashtagLinks(prepareContent.eyebrow, getFeedTagHref, "prepare-eyebrow")}
-												</p>
-											) : null}
-											{prepareContent.title ? (
-												<p className="text-[1.95rem] font-black leading-[1.15] tracking-[-0.015em] text-[color:var(--txt-1)] sm:text-[2.1rem]">
-													{renderTextWithHashtagLinks(prepareContent.title, getFeedTagHref, "prepare-title")}
-												</p>
-											) : null}
-											{prepareContent.subtitle ? (
-												<p className="whitespace-pre-line break-words text-[1.02rem] leading-7 text-[color:var(--txt-2)]">
-													{renderTextWithHashtagLinks(prepareContent.subtitle, getFeedTagHref, "prepare-subtitle")}
-												</p>
-											) : null}
-											{prepareContent.footerLine ? (
-												<p className="whitespace-pre-line break-words text-[0.8rem] font-medium leading-5 text-[color:var(--txt-3)]">
-													{renderTextWithHashtagLinks(prepareContent.footerLine, getFeedTagHref, "prepare-footer")}
-												</p>
-											) : null}
-											{prepareContent.headingHashtags.length > 0 ? (
-												<p className="flex flex-wrap gap-1.5 pt-0.5">
-													{prepareContent.headingHashtags.map((hashtag, index) => (
-														<Link
-															key={`heading-hashtag-${hashtag}-${index}`}
-															href={getFeedTagHref(hashtag)}
-															className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
-															style={PREPARE_CONTENT_HASHTAG_LINK_STYLE}
-														>
-															{hashtag}
-														</Link>
-													))}
-												</p>
-											) : null}
-										</div>
-									</header>
-								) : null}
-
-								{headingImages.map((headingImage) => {
-									const headingStyle = toTextColorStyle(headingImage.headingColor);
-									const textStyle = toTextColorStyle(headingImage.textColor);
-									const containerStyle = toBackgroundColorStyle(headingImage.backgroundColor);
-
-									return (
-										<div
-											key={`heading-image-${headingImage.slot}`}
-											className="space-y-2 rounded-2xl border p-4"
-											style={{
-												borderColor: "var(--surface-border)",
-												backgroundColor: "var(--cell-2)",
-												...containerStyle,
-											}}
-										>
-											<Image
-												src={headingImage.url}
-												alt={headingImage.heading || headingImage.description || prepareContent.title || "Heading image"}
-												width={1200}
-												height={900}
-												sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
-												className="h-auto w-full rounded-lg border object-cover"
-												style={{ borderColor: "var(--surface-border)" }}
-											/>
-											{headingImage.heading ? (
-												<p className="text-lg font-semibold leading-tight text-[color:var(--txt-1)]" style={headingStyle}>
-													{renderTextWithHashtagLinks(
-														headingImage.heading,
-														getFeedTagHref,
-														`heading-image-${headingImage.slot}-heading`,
-													)}
-												</p>
-											) : null}
-											{headingImage.description ? (
-												<p
-													className="whitespace-pre-line break-words text-base leading-7 text-[color:var(--txt-2)]"
-													style={textStyle}
-												>
-													{renderTextWithHashtagLinks(
-														headingImage.description,
-														getFeedTagHref,
-														`heading-image-${headingImage.slot}-description`,
-													)}
-												</p>
-											) : null}
-										</div>
-									);
-								})}
-
-								{prepareContent.paragraphs.length > 0 ? (
-									<div className="space-y-3 border-t pt-3" style={{ borderColor: "var(--surface-border)" }}>
-										{prepareContent.paragraphs.map((paragraph, index) => {
-											const headingStyle = toTextColorStyle(paragraph.headingColor);
-											const textStyle = toTextColorStyle(paragraph.textColor);
-											const containerStyle = toBackgroundColorStyle(paragraph.backgroundColor);
-											const paragraphClassName = paragraph.backgroundColor
-												? "space-y-1 rounded-xl px-3 py-2.5"
-												: "space-y-1";
-
-											return (
-												<div key={`paragraph-${index}`} className={paragraphClassName} style={containerStyle}>
-													{paragraph.heading ? (
-														<p
-															className="whitespace-pre-line break-words text-lg font-semibold leading-tight text-[color:var(--txt-1)]"
-															style={headingStyle}
-														>
-															{renderTextWithHashtagLinks(
-																paragraph.heading,
-																getFeedTagHref,
-																`paragraph-${index}-heading`,
-															)}
-														</p>
-													) : null}
-
-													{paragraph.type === "hashtags" ? (
-														<p className="flex flex-wrap gap-x-1 gap-y-0.5">
-															{paragraph.hashtags.map((hashtag, hashtagIndex) => (
-																<Link
-																	key={`paragraph-hashtag-${index}-${hashtagIndex}`}
-																	href={getFeedTagHref(hashtag)}
-																	className={PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME}
-																	style={PREPARE_CONTENT_HASHTAG_LINK_STYLE}
-																>
-																	{hashtag}
-																</Link>
-															))}
-														</p>
-													) : (
-														<>
-															{paragraph.type === "image" && paragraph.url ? (
-																<Image
-																	src={paragraph.url}
-																	alt={paragraph.heading || paragraph.content || "Paragraph image"}
-																	width={1200}
-																	height={900}
-																	sizes="(max-width: 640px) calc(100vw - 2rem), 600px"
-																	className="h-auto w-full rounded-lg border object-cover"
-																	style={{ borderColor: "var(--surface-border)" }}
-																/>
-															) : null}
-															{paragraph.content ? (
-																<p className="whitespace-pre-line break-words text-base leading-7 sm:text-[1.05rem]" style={textStyle}>
-																	{renderTextWithHashtagLinks(
-																		paragraph.content,
-																		getFeedTagHref,
-																		`paragraph-${index}-content`,
-																	)}
-																</p>
-															) : null}
-															{paragraph.url && paragraph.type !== "image" ? (
-																<Link
-																	href={paragraph.url}
-																	target="_blank"
-																	rel="noopener noreferrer"
-																	className="block break-all text-xs font-semibold transition-opacity hover:opacity-85"
-																	style={textStyle ?? { color: "var(--accent-2)" }}
-																>
-																	{paragraph.url}
-																</Link>
-															) : null}
-														</>
-													)}
-												</div>
-											);
+							{igCaptionContent ? (
+								<div className="space-y-1.5 text-[15px] leading-7 text-[color:var(--txt-2)]">
+									<p className="whitespace-pre-line break-words">
+										{renderTextWithHashtagLinks(igCaptionContent, getFeedTagHref, "post-caption", {
+											linkClassName: CAPTION_HASHTAG_LINK_CLASSNAME,
+											linkStyle: CAPTION_HASHTAG_LINK_STYLE,
 										})}
-									</div>
-								) : null}
-
-							</div>
-						) : trimmedCaption ? (
-							<div className="space-y-1 text-[15px] leading-6 text-[color:var(--txt-2)]">
-								<p className="whitespace-pre-line break-words">
-									<span className="mr-1 font-semibold text-[color:var(--txt-1)]">{handle}</span>
-									{content || trimmedCaption}
-								</p>
-							</div>
-						) : (
-							<p className="text-sm italic text-[color:var(--txt-3)]">{t.noCaption}</p>
-						)}
+									</p>
+								</div>
+							) : (
+								<p className="text-sm italic text-[color:var(--txt-3)]">{t.noCaption}</p>
+							)}
 					</div>
 				</article>
 

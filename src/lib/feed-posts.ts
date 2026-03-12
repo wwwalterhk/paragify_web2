@@ -217,7 +217,7 @@ function getR2MediaKeyFromSources(mediaUrl: string | null, rawMediaUrl: string |
 }
 
 function getFeedImageTransformOptions(): string {
-	return `width=${FEED_IMAGE_WIDTH},quality=70,format=auto`;
+	return `width=${FEED_IMAGE_WIDTH},quality=85,format=auto`;
 }
 
 function getCloudflareTransformedImageUrl(mediaKey: string | null): string | null {
