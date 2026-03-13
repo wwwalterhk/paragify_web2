@@ -1,7 +1,22 @@
-export async function GET() {
+function escapeHtmlAttribute(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+export async function GET(request: Request) {
+	const requestUrl = new URL(request.url);
+	const buttonUrl = new URL("/api/auth/callback/android-app-apple-link", requestUrl.origin);
+	for (const [key, value] of requestUrl.searchParams.entries()) {
+		buttonUrl.searchParams.set(key, value);
+	}
+	const buttonUrlHref = escapeHtmlAttribute(buttonUrl.toString());
+
 	const html = `<!doctype html>
-<html lang="en">
-  <head>
+	<html lang="en">
+	  <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Continue in Paragify</title>
@@ -13,13 +28,13 @@ export async function GET() {
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>Open the Paragify app to continue</h1>
-      <p>If the app doesn't open automatically, return to the Paragify app and retry sign in.</p>
-      <a href="https://paragify.com/api/auth/callback/android-app-apple-link?code=...&state=..."
-         style="display:inline-block;margin-top:16px;padding:10px 16px;border-radius:10px;background:#e5e7eb;color:#111827;text-decoration:none;">
-        Open Paragify app
-      </a>
+	    <div class="card">
+	      <h1>Open the Paragify app to continue</h1>
+	      <p>If the app doesn't open automatically, return to the Paragify app and retry sign in.</p>
+	      <a href="${buttonUrlHref}"
+	         style="display:inline-block;margin-top:16px;padding:10px 16px;border-radius:10px;background:#e5e7eb;color:#111827;text-decoration:none;">
+	        Open Paragify app
+	      </a>
     </div>
     <script>
       setTimeout(() => {
