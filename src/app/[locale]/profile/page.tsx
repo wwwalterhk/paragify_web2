@@ -51,6 +51,12 @@ type ProfileCopy = {
 	comments: string;
 	signOut: string;
 	adminPostPreparation: string;
+	dangerZone: string;
+	updateUserIdIntro: string;
+	updateUserId: string;
+	deleteIntro: string;
+	deleteHelpLink: string;
+	deleteAccount: string;
 	userNotFound: string;
 	dbUnavailable: string;
 };
@@ -79,6 +85,12 @@ const copy: Record<"en" | "zh", ProfileCopy> = {
 		comments: "comments",
 		signOut: "Sign out",
 		adminPostPreparation: "Post preparation",
+		dangerZone: "Danger zone",
+		updateUserIdIntro: "Change your public user ID. This updates your public profile URL.",
+		updateUserId: "Update public ID",
+		deleteIntro: "Permanently delete your 328car account. This cannot be undone and you will be signed out.",
+		deleteHelpLink: "Account deletion help",
+		deleteAccount: "Delete account",
 		userNotFound: "User not found.",
 		dbUnavailable: "DB unavailable",
 	},
@@ -101,6 +113,12 @@ const copy: Record<"en" | "zh", ProfileCopy> = {
 		comments: "留言",
 		signOut: "登出",
 		adminPostPreparation: "帖文準備管理",
+		dangerZone: "危險區域",
+		updateUserIdIntro: "更改你的公開帳號 ID。這會更新你的公開個人檔案連結。",
+		updateUserId: "更改公開帳號 ID",
+		deleteIntro: "永久刪除你的 328car 帳戶。此操作無法還原，完成後你會被登出。",
+		deleteHelpLink: "帳戶刪除說明",
+		deleteAccount: "刪除帳戶",
 		userNotFound: "找不到使用者。",
 		dbUnavailable: "資料庫未連線",
 	},
@@ -109,12 +127,14 @@ const copy: Record<"en" | "zh", ProfileCopy> = {
 function mapLocale(rawLocale: string): {
 	lang: "en" | "zh";
 	profilePath: string;
+	accountDeletionPath: string;
 	signInPath: string;
 } {
 	const lang = rawLocale.toLowerCase() === "en" ? "en" : "zh";
 	return {
 		lang,
 		profilePath: `/${lang}/profile`,
+		accountDeletionPath: `/${lang}/account-deletion`,
 		signInPath: `/auth/${lang}/signin`,
 	};
 }
@@ -201,7 +221,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function ProfilePage({ params }: PageProps) {
 	const { locale } = await params;
-	const { lang, profilePath, signInPath } = mapLocale(locale);
+	const { lang, profilePath, signInPath, accountDeletionPath } = mapLocale(locale);
 	const t = copy[lang];
 
 	const session = await getServerSession(authOptions);
@@ -307,7 +327,7 @@ export default async function ProfilePage({ params }: PageProps) {
 					<p className="mt-2 text-sm text-[color:var(--txt-2)] sm:text-base">{t.subtitle}</p>
 				</div>
 
-				<div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+					<div className="grid gap-6 lg:grid-cols-[320px_1fr]">
 					<section className="rounded-3xl border border-[color:var(--surface-border)] bg-[color:var(--cell-1)] p-6 shadow-sm">
 						<div className="flex flex-col items-center gap-4 text-center">
 							<div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--cell-2)] text-lg font-semibold text-[color:var(--txt-2)]">
@@ -418,9 +438,41 @@ export default async function ProfilePage({ params }: PageProps) {
 								})}
 							</div>
 						)}
-					</section>
+						</section>
+					</div>
+
+					<div className="mt-6 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--cell-1)] p-4 text-sm text-[color:var(--txt-1)] shadow-sm">
+						<div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-600">
+							{t.dangerZone}
+						</div>
+						<p className="text-[color:var(--txt-3)]">{t.updateUserIdIntro}</p>
+						<div className="mt-3 flex flex-wrap items-center gap-3">
+							<Link
+								href="mailto:admin@paragify.com?subject=Change%20my%20public%20user%20ID"
+								className="inline-flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--cell-1)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--txt-2)] transition hover:-translate-y-0.5 hover:bg-[color:var(--cell-2)]"
+							>
+								{t.updateUserId}
+							</Link>
+						</div>
+						<p className="text-[color:var(--txt-3)]">
+							{t.deleteIntro}{" "}
+							<Link
+								href={accountDeletionPath}
+								className="font-semibold text-[color:var(--txt-2)] underline decoration-[color:var(--accent-1)]/60 decoration-2 underline-offset-4 hover:text-[color:var(--accent-1)]"
+							>
+								{t.deleteHelpLink}
+							</Link>
+						</p>
+						<div className="mt-3 flex flex-wrap items-center gap-3">
+							<Link
+								href={accountDeletionPath}
+								className="inline-flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--cell-1)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--txt-2)] transition hover:-translate-y-0.5 hover:bg-[color:var(--cell-2)]"
+							>
+								{t.deleteAccount}
+							</Link>
+						</div>
+					</div>
 				</div>
-			</div>
-		</main>
-	);
+			</main>
+		);
 }
