@@ -914,24 +914,23 @@ export function FeedInfiniteList({
 													canPm ? "hover:text-[color:var(--txt-1)]" : "opacity-40",
 													pmPending ? "cursor-not-allowed opacity-60" : "",
 												].join(" ")}
-											>
-												<PaperAirplaneIcon className="h-6 w-6" aria-hidden="true" />
-											</button>
-											<button
-												type="button"
-												aria-label="Paragraph"
-												onClick={() => openParagraph(post.post_slug)}
-												disabled={!post.post_slug}
-												className={[
-													"inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition",
-													post.post_slug
-														? "hover:text-[color:var(--txt-1)]"
-														: "cursor-not-allowed opacity-40",
-												].join(" ")}
-											>
-												<Bars3BottomLeftIcon className="h-6 w-6" aria-hidden="true" />
-												<span>Paragraph</span>
-											</button>
+												>
+													<PaperAirplaneIcon className="h-6 w-6" aria-hidden="true" />
+												</button>
+												<button
+													type="button"
+													aria-label="Paragraph"
+													onClick={() => openParagraph(post.post_slug)}
+													disabled={!post.post_slug}
+													className={[
+														"transition",
+														post.post_slug
+															? "hover:text-[color:var(--txt-1)]"
+															: "cursor-not-allowed opacity-40",
+													].join(" ")}
+												>
+													<Bars3BottomLeftIcon className="h-6 w-6" aria-hidden="true" />
+												</button>
 										</div>
 										<button
 											type="button"
@@ -959,7 +958,7 @@ export function FeedInfiniteList({
 									</p>
 
 									{trimmedCaption ? (
-										<FeedPostCaption handle={handle} caption={trimmedCaption} />
+										<FeedPostCaption caption={trimmedCaption} />
 									) : (
 										<p className="text-sm italic text-[color:var(--txt-3)]">No caption.</p>
 									)}

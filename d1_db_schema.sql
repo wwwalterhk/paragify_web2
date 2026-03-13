@@ -306,6 +306,7 @@ CREATE TABLE IF NOT EXISTS posts (
   ig_ref        TEXT, -- instagram reference ID if published to IG
   batch_id        TEXT, -- optional batch ID if this post is part of a batch operation (e.g. AI generation)
   price          INTEGER,
+  view_count     INTEGER NOT NULL DEFAULT 0,
   template_id    TEXT, -- optional template reference for AI-generated content
   cover_page     INTEGER NOT NULL DEFAULT 1,          -- 1-based index into post_pages
   visibility     TEXT NOT NULL DEFAULT 'public',      -- public|followers|private

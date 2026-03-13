@@ -2,26 +2,17 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
-type FeedPostCaptionProps = {
+type PostDetailCaptionProps = {
 	caption: string;
+	moreLabel: string;
+	lessLabel: string;
+	linkClassName: string;
+	linkStyle: CSSProperties;
 };
 
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
-const INLINE_HASHTAG_CLASSNAME =
-	"font-semibold text-[color:var(--accent-2)] underline-offset-2 transition-opacity hover:opacity-85 hover:underline";
-const INLINE_HASHTAG_STYLE = {
-	color: "var(--accent-2)",
-};
-
-function normalizeCaption(caption: string): string {
-	return caption
-		.replace(/[ \t]+\n/g, "\n")
-		.replace(/\n[ \t]+/g, "\n")
-		.replace(/[ \t]{2,}/g, " ")
-		.trim();
-}
 
 function splitCaption(caption: string): { headingLine: string; remainder: string } {
 	const normalized = caption.replace(/\r\n/g, "\n").trim();
@@ -43,7 +34,12 @@ function splitCaption(caption: string): { headingLine: string; remainder: string
 	return { headingLine, remainder };
 }
 
-function renderCaptionWithHashtags(caption: string): ReactNode {
+function renderCaptionWithHashtags(
+	caption: string,
+	keyPrefix: string,
+	linkClassName: string,
+	linkStyle: CSSProperties,
+): ReactNode {
 	const nodes: ReactNode[] = [];
 	const hashtagMatches = Array.from(caption.matchAll(HASHTAG_MATCH_PATTERN));
 	let cursor = 0;
@@ -59,10 +55,10 @@ function renderCaptionWithHashtags(caption: string): ReactNode {
 
 		nodes.push(
 			<Link
-				key={`${hashtag}-${index}-${startIndex}`}
+				key={`${keyPrefix}-hashtag-${index}-${startIndex}`}
 				href={`/?tag=${encodeURIComponent(hashtag.replace(/^#/, ""))}`}
-				className={INLINE_HASHTAG_CLASSNAME}
-				style={INLINE_HASHTAG_STYLE}
+				className={linkClassName}
+				style={linkStyle}
 			>
 				{hashtag}
 			</Link>,
@@ -78,26 +74,30 @@ function renderCaptionWithHashtags(caption: string): ReactNode {
 	return nodes.length > 0 ? nodes : caption;
 }
 
-export function FeedPostCaption({ caption }: FeedPostCaptionProps) {
+export function PostDetailCaption({
+	caption,
+	moreLabel,
+	lessLabel,
+	linkClassName,
+	linkStyle,
+}: PostDetailCaptionProps) {
 	const [expanded, setExpanded] = useState(false);
-	const content = useMemo(() => normalizeCaption(caption), [caption]);
-	const { headingLine, remainder } = useMemo(() => splitCaption(content), [content]);
+	const { headingLine, remainder } = useMemo(() => splitCaption(caption), [caption]);
 	const hasMoreContent = remainder.length > 0;
-	const visibleCaption = expanded || !hasMoreContent ? content : headingLine;
+	const visibleCaption = expanded || !hasMoreContent ? caption : headingLine;
 
 	return (
 		<div className="space-y-1.5 text-[15px] leading-7 text-[color:var(--txt-2)]">
 			<p className="whitespace-pre-line break-words">
-				{renderCaptionWithHashtags(visibleCaption)}
+				{renderCaptionWithHashtags(visibleCaption, "post-caption", linkClassName, linkStyle)}
 			</p>
-
 			{hasMoreContent ? (
 				<button
 					type="button"
 					onClick={() => setExpanded((value) => !value)}
 					className="text-xs font-semibold uppercase tracking-wide text-[color:var(--txt-3)] hover:text-[color:var(--txt-1)]"
 				>
-					{expanded ? "less" : "more"}
+					{expanded ? lessLabel : moreLabel}
 				</button>
 			) : null}
 		</div>

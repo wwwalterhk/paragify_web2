@@ -4,10 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import { authOptions } from "@/lib/auth-options";
 import { FeedPostMediaCarousel } from "@/app/components/feed-post-media-carousel";
 import { PostComment, PostDetailComments } from "./post-detail-comments";
+import { PostDetailCaption } from "./post-detail-caption";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,8 @@ const copy: Record<
 		pages: string;
 		noCaption: string;
 		posted: string;
+		more: string;
+		less: string;
 	}
 > = {
 	en: {
@@ -114,6 +117,8 @@ const copy: Record<
 		pages: "pages",
 		noCaption: "No caption.",
 		posted: "Posted",
+		more: "more",
+		less: "less",
 	},
 	zh: {
 		back: "返回首頁",
@@ -122,6 +127,8 @@ const copy: Record<
 		pages: "頁",
 		noCaption: "沒有內文。",
 		posted: "發佈於",
+		more: "更多",
+		less: "收起",
 	},
 };
 
@@ -252,51 +259,6 @@ function toPrepareContentHexColor(value: unknown): string | null {
 	}
 
 	return normalized;
-}
-
-function renderTextWithHashtagLinks(
-	value: string,
-	getFeedTagHref: (hashtag: string) => string,
-	keyPrefix: string,
-	options?: {
-		linkClassName?: string;
-		linkStyle?: CSSProperties;
-	},
-): ReactNode {
-	const nodes: ReactNode[] = [];
-	const hashtagMatches = Array.from(value.matchAll(/#[\p{L}\p{N}\p{M}_]+/gu));
-	const linkClassName = options?.linkClassName ?? PREPARE_CONTENT_HASHTAG_LINK_CLASSNAME;
-	const linkStyle = options?.linkStyle ?? PREPARE_CONTENT_HASHTAG_LINK_STYLE;
-	let cursor = 0;
-
-	for (let index = 0; index < hashtagMatches.length; index += 1) {
-		const match = hashtagMatches[index];
-		const hashtag = match[0];
-		const startIndex = match.index ?? 0;
-
-		if (startIndex > cursor) {
-			nodes.push(value.slice(cursor, startIndex));
-		}
-
-		nodes.push(
-			<Link
-				key={`${keyPrefix}-hashtag-${index}-${startIndex}`}
-				href={getFeedTagHref(hashtag)}
-				className={linkClassName}
-				style={linkStyle}
-			>
-				{hashtag}
-			</Link>,
-			);
-
-		cursor = startIndex + hashtag.length;
-	}
-
-	if (cursor < value.length) {
-		nodes.push(value.slice(cursor));
-	}
-
-	return nodes.length > 0 ? nodes : value;
 }
 
 function parsePossiblyEscapedJson(value: unknown, maxDepth = 4): unknown {
@@ -543,48 +505,58 @@ function toIgCaptionText(prepareContent: PrepareContentView | null): string {
 	}
 
 	const sections: string[] = [];
-	const pushSection = (value: string | null) => {
+	const topLineSections: string[] = [];
+	const pushSection = (value: string | null, target: "top-line" | "default" = "default") => {
 		const trimmed = value?.trim() ?? "";
 		if (trimmed) {
+			if (target === "top-line") {
+				topLineSections.push(trimmed);
+				return;
+			}
 			sections.push(trimmed);
 		}
 	};
+	const pushSectionGroup = (values: Array<string | null>) => {
+		const lines = values
+			.map((value) => value?.trim() ?? "")
+			.filter((line) => line.length > 0);
+		if (lines.length > 0) {
+			sections.push(lines.join("\n"));
+		}
+	};
 
-	pushSection(prepareContent.eyebrow);
+	pushSection(prepareContent.eyebrow, "top-line");
 	const markedTitle = toMarkedHeadingText(prepareContent.title);
 	if (markedTitle) {
-		sections.push(markedTitle);
+		topLineSections.push(markedTitle);
 	}
-	pushSection(prepareContent.subtitle);
-	pushSection(prepareContent.footerLine);
+	pushSection(prepareContent.subtitle, "top-line");
+	pushSection(prepareContent.footerLine, "top-line");
 	if (prepareContent.headingHashtags.length > 0) {
-		sections.push(prepareContent.headingHashtags.join(" "));
+		topLineSections.push(prepareContent.headingHashtags.join(" "));
+	}
+	if (topLineSections.length > 0) {
+		sections.push(topLineSections.join(" · "));
 	}
 
 	for (const headingImage of prepareContent.headingImages) {
 		const markedHeadingImageTitle = toMarkedHeadingText(headingImage.heading);
-		if (markedHeadingImageTitle) {
-			sections.push(markedHeadingImageTitle);
-		}
-		pushSection(headingImage.description);
+		pushSectionGroup([markedHeadingImageTitle, headingImage.description]);
 	}
 
 	for (const paragraph of prepareContent.paragraphs) {
 		const markedParagraphHeading = toMarkedHeadingText(paragraph.heading);
-		if (markedParagraphHeading) {
-			sections.push(markedParagraphHeading);
-		}
 		if (paragraph.type === "hashtags") {
-			if (paragraph.hashtags.length > 0) {
-				sections.push(paragraph.hashtags.join(" "));
-			}
+			const hashtagsLine = paragraph.hashtags.length > 0 ? paragraph.hashtags.join(" ") : null;
+			pushSectionGroup([markedParagraphHeading, hashtagsLine]);
 			continue;
 		}
 
-		pushSection(paragraph.content);
+		const paragraphSection = [markedParagraphHeading, paragraph.content];
 		if (paragraph.type !== "image") {
-			pushSection(paragraph.url);
+			paragraphSection.push(paragraph.url);
 		}
+		pushSectionGroup(paragraphSection);
 	}
 
 	return sections.join("\n\n");
@@ -1161,7 +1133,6 @@ export default async function PostDetailPage({ params }: PageProps) {
 	const igCaptionFromPrepareContent = toIgCaptionText(prepareContent);
 	const igCaptionContent = igCaptionFromPrepareContent || trimmedCaption;
 	const mediaImageAltByIndex = buildMediaImageAltByIndex(mediaItems, prepareContent, post.title);
-	const getFeedTagHref = (hashtag: string) => `/?tag=${encodeURIComponent(hashtag.replace(/^#/, ""))}`;
 	const slugRef = getPostSlugRef(post);
 	const canonicalUrl = toAbsoluteUrl(buildPostPath(lang, slugRef));
 	const seoSummary = buildSeoSummary(post, prepareContent, lang);
@@ -1328,14 +1299,13 @@ export default async function PostDetailPage({ params }: PageProps) {
 						</div>
 
 							{igCaptionContent ? (
-								<div className="space-y-1.5 text-[15px] leading-7 text-[color:var(--txt-2)]">
-									<p className="whitespace-pre-line break-words">
-										{renderTextWithHashtagLinks(igCaptionContent, getFeedTagHref, "post-caption", {
-											linkClassName: CAPTION_HASHTAG_LINK_CLASSNAME,
-											linkStyle: CAPTION_HASHTAG_LINK_STYLE,
-										})}
-									</p>
-								</div>
+								<PostDetailCaption
+									caption={igCaptionContent}
+									moreLabel={t.more}
+									lessLabel={t.less}
+									linkClassName={CAPTION_HASHTAG_LINK_CLASSNAME}
+									linkStyle={CAPTION_HASHTAG_LINK_STYLE}
+								/>
 							) : (
 								<p className="text-sm italic text-[color:var(--txt-3)]">{t.noCaption}</p>
 							)}
