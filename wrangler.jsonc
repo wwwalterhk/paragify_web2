@@ -61,7 +61,7 @@
 		"GOOGLE_CLIENT_ID_IOS": "279505539558-t14aj6i7vdr4hgkpb8s12o63r20tanin.apps.googleusercontent.com",
 		"APPLE_CLIENT_ID": "com.paragify.website",
 		"APPLE_CLIENT_ID_IOS": "app.logplus.paragify",
-		"APPLE_CLIENT_ID_ANDROID": "app.logplus.paragify",
+		"APPLE_CLIENT_ID_ANDROID": "app.logplus.paragify2",
 		"APPLE_KEY_ID": "F5Z5WZNMJ8",
 		"APPLE_TEAM_ID": "89YQ68UNXT",
 		"APNS_USE_SANDBOX": "true",
