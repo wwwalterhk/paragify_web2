@@ -531,3 +531,29 @@ CREATE TABLE IF NOT EXISTS gemini_batch_items (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_gemini_batch_gemini_custom_id ON gemini_batch_items(batch_job_id, gemini_custom_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_gemini_batch_item_type_items_id ON gemini_batch_items(batch_job_id, item_type, item_id);
+
+
+
+
+
+
+CREATE TABLE IF NOT EXISTS web_contents (
+  content_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_pk        INTEGER NOT NULL,
+  write_style        TEXT,
+  content_slug      TEXT UNIQUE, -- unique slug for URL
+  locale         TEXT, 
+  title          TEXT,
+  cover_img_url    TEXT, 
+  prepare_status INTEGER DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
+  prepare_url    TEXT, 
+  prepare_src    TEXT, -- original text content of prepare_url
+  prepare_content    TEXT, 
+  prepare_content_refined    TEXT, 
+  refine_prepare_content INTEGER, -- 0 = none, 1 = requested, 2 = done, 3 = failed
+  batch_id        TEXT, -- optional batch ID if this post is part of a batch operation (e.g. AI generation)
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_web_contents_user_created ON web_contents(user_pk, created_at DESC);
+
