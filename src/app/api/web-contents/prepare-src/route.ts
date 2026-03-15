@@ -1,20 +1,19 @@
 import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { sendWebContentPrepareStatusPush } from "@/lib/web-content-push";
 
 type DbBindings = CloudflareEnv & { DB?: D1Database };
 
-type UpdateWebContentBatchPayload = {
+type UpdateWebContentPrepareSrcPayload = {
 	post_id?: unknown;
 	content_id?: unknown;
-	batch_id?: unknown;
-	html_length?: unknown;
+	prepare_src?: unknown;
 	prepare_status?: unknown;
 };
 
-type WebContentBatchRow = {
+type WebContentPrepareSrcRow = {
 	content_id: number;
-	batch_id: string | null;
-	html_length: number | null;
+	prepare_src: string | null;
 	prepare_status: number | null;
 	updated_at: string | null;
 };
@@ -35,10 +34,6 @@ function readPositiveInteger(value: unknown): number | null {
 	return null;
 }
 
-function readString(value: unknown): string | null {
-	return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function readStatus(value: unknown): number | null {
 	if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3) {
 		return value;
@@ -55,23 +50,7 @@ function readStatus(value: unknown): number | null {
 	return null;
 }
 
-function readNonNegativeInteger(value: unknown): number | null {
-	if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-		return value;
-	}
-	if (typeof value === "string") {
-		const trimmed = value.trim();
-		if (/^\d+$/.test(trimmed)) {
-			const parsed = Number(trimmed);
-			if (Number.isInteger(parsed) && parsed >= 0) {
-				return parsed;
-			}
-		}
-	}
-	return null;
-}
-
-async function handleUpdateBatchId(request: Request) {
+async function handleUpdatePrepareSrc(request: Request) {
 	const contentType = request.headers.get("content-type") || "";
 	if (!contentType.toLowerCase().includes("application/json")) {
 		return NextResponse.json({ ok: false, message: "Content-Type must be application/json" }, { status: 415 });
@@ -84,25 +63,21 @@ async function handleUpdateBatchId(request: Request) {
 			return NextResponse.json({ ok: false, message: "DB unavailable" }, { status: 500 });
 		}
 
-		const body = (await request.json().catch(() => null)) as UpdateWebContentBatchPayload | null;
+		const body = (await request.json().catch(() => null)) as UpdateWebContentPrepareSrcPayload | null;
 		if (!body || typeof body !== "object" || Array.isArray(body)) {
 			return NextResponse.json({ ok: false, message: "invalid json body" }, { status: 400 });
 		}
 
 		const contentId = readPositiveInteger(body.content_id ?? body.post_id);
-		const batchId = readString(body.batch_id);
-		const hasHtmlLength = Object.prototype.hasOwnProperty.call(body, "html_length");
-		const htmlLength = hasHtmlLength ? readNonNegativeInteger(body.html_length) : null;
 		const prepareStatus = readStatus(body.prepare_status);
+		const hasPrepareSrc = Object.prototype.hasOwnProperty.call(body, "prepare_src");
+		const prepareSrc = typeof body.prepare_src === "string" ? body.prepare_src : null;
 
 		if (!contentId) {
 			return NextResponse.json({ ok: false, message: "invalid post_id" }, { status: 400 });
 		}
-		if (!batchId) {
-			return NextResponse.json({ ok: false, message: "invalid batch_id" }, { status: 400 });
-		}
-		if (hasHtmlLength && htmlLength === null) {
-			return NextResponse.json({ ok: false, message: "invalid html_length" }, { status: 400 });
+		if (!hasPrepareSrc || prepareSrc === null) {
+			return NextResponse.json({ ok: false, message: "invalid prepare_src" }, { status: 400 });
 		}
 		if (prepareStatus === null) {
 			return NextResponse.json({ ok: false, message: "invalid prepare_status" }, { status: 400 });
@@ -111,13 +86,12 @@ async function handleUpdateBatchId(request: Request) {
 		const updateResult = await db
 			.prepare(
 				`UPDATE web_contents
-				    SET batch_id = ?,
-				        html_length = COALESCE(?, html_length),
+				    SET prepare_src = ?,
 				        prepare_status = ?,
 				        updated_at = datetime('now')
 				  WHERE content_id = ?`,
 			)
-			.bind(batchId, htmlLength, prepareStatus, contentId)
+			.bind(prepareSrc, prepareStatus, contentId)
 			.run();
 
 		if ((updateResult.meta?.changes ?? 0) < 1) {
@@ -126,38 +100,39 @@ async function handleUpdateBatchId(request: Request) {
 
 		const row = await db
 			.prepare(
-				`SELECT content_id, batch_id, html_length, prepare_status, updated_at
+				`SELECT content_id, prepare_src, prepare_status, updated_at
            FROM web_contents
           WHERE content_id = ?
           LIMIT 1`,
 			)
 			.bind(contentId)
-			.first<WebContentBatchRow>();
+			.first<WebContentPrepareSrcRow>();
+
+		await sendWebContentPrepareStatusPush(db, contentId, prepareStatus);
 
 		return NextResponse.json({
 			ok: true,
 			post_id: contentId,
 			web_content: row ?? {
 				content_id: contentId,
-				batch_id: batchId,
-				html_length: htmlLength,
+				prepare_src: prepareSrc,
 				prepare_status: prepareStatus,
 			},
 		});
 	} catch (error) {
 		return NextResponse.json(
-			{ ok: false, message: error instanceof Error ? error.message : "failed to update web content batch_id" },
+			{ ok: false, message: error instanceof Error ? error.message : "failed to update web content prepare_src" },
 			{ status: 500 },
 		);
 	}
 }
 
 export async function POST(request: Request) {
-	return handleUpdateBatchId(request);
+	return handleUpdatePrepareSrc(request);
 }
 
 export async function PATCH(request: Request) {
-	return handleUpdateBatchId(request);
+	return handleUpdatePrepareSrc(request);
 }
 
 export function GET() {

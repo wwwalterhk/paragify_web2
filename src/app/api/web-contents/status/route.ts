@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { sendWebContentPrepareStatusPush } from "@/lib/web-content-push";
 
 type DbBindings = CloudflareEnv & { DB?: D1Database };
 
@@ -25,7 +26,23 @@ function readPositiveInteger(value: unknown): number | null {
 	return null;
 }
 
-function readStatus(value: unknown): number | null {
+function readActiveStatus(value: unknown): number | null {
+	if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1) {
+		return value;
+	}
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (/^\d+$/.test(trimmed)) {
+			const parsed = Number(trimmed);
+			if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 1) {
+				return parsed;
+			}
+		}
+	}
+	return null;
+}
+
+function readPrepareStatus(value: unknown): number | null {
 	if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3) {
 		return value;
 	}
@@ -51,18 +68,34 @@ export async function POST(request: Request) {
 
 		const body = (await request.json().catch(() => null)) as UpdateStatusPayload | null;
 		const contentId = readPositiveInteger(body?.content_id);
-		const status = readStatus(body?.status ?? body?.prepare_status);
 
 		if (!contentId) {
 			return NextResponse.json({ ok: false, message: "invalid content_id" }, { status: 400 });
 		}
-		if (status === null) {
-			return NextResponse.json({ ok: false, message: "invalid status" }, { status: 400 });
+
+		let column: "status" | "prepare_status";
+		let nextValue: number | null;
+		let invalidMessage: string;
+
+		if (body?.status !== undefined) {
+			column = "status";
+			nextValue = readActiveStatus(body.status);
+			invalidMessage = "invalid status";
+		} else if (body?.prepare_status !== undefined) {
+			column = "prepare_status";
+			nextValue = readPrepareStatus(body.prepare_status);
+			invalidMessage = "invalid prepare_status";
+		} else {
+			return NextResponse.json({ ok: false, message: "status or prepare_status is required" }, { status: 400 });
+		}
+
+		if (nextValue === null) {
+			return NextResponse.json({ ok: false, message: invalidMessage }, { status: 400 });
 		}
 
 		const updateResult = await db
-			.prepare("UPDATE web_contents SET status = ?, updated_at = datetime('now') WHERE content_id = ?")
-			.bind(status, contentId)
+			.prepare(`UPDATE web_contents SET ${column} = ?, updated_at = datetime('now') WHERE content_id = ?`)
+			.bind(nextValue, contentId)
 			.run();
 
 		if ((updateResult.meta?.changes ?? 0) < 1) {
@@ -71,7 +104,7 @@ export async function POST(request: Request) {
 
 		const row = await db
 			.prepare(
-				`SELECT content_id, content_slug, user_pk, status, updated_at
+				`SELECT content_id, content_slug, user_pk, status, prepare_status, updated_at
          FROM web_contents
          WHERE content_id = ?
          LIMIT 1`,
@@ -82,14 +115,20 @@ export async function POST(request: Request) {
 				content_slug: string | null;
 				user_pk: number;
 				status: number | null;
+				prepare_status: number | null;
 				updated_at: string | null;
 			}>();
+
+		if (column === "prepare_status" && nextValue === 3) {
+			await sendWebContentPrepareStatusPush(db, contentId, nextValue);
+		}
 
 		return NextResponse.json({
 			ok: true,
 			web_content: row ?? {
 				content_id: contentId,
-				status,
+				status: column === "status" ? nextValue : null,
+				prepare_status: column === "prepare_status" ? nextValue : null,
 			},
 		});
 	} catch (error) {
