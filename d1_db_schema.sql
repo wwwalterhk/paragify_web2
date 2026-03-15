@@ -545,6 +545,7 @@ CREATE TABLE IF NOT EXISTS web_contents (
   locale         TEXT, 
   title          TEXT,
   cover_img_url    TEXT, 
+  status INTEGER DEFAULT 1, -- 0 = deleted, 1 = active
   prepare_status INTEGER DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
   prepare_url    TEXT, 
   prepare_src    TEXT, -- original text content of prepare_url

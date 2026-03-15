@@ -10,6 +10,7 @@ type CreateWebContentPayload = {
 	locale?: unknown;
 	write_style?: unknown;
 	title?: unknown;
+	cover_img_url?: unknown;
 };
 
 type WebContentRow = {
@@ -20,6 +21,7 @@ type WebContentRow = {
 	locale: string | null;
 	title: string | null;
 	cover_img_url: string | null;
+	status: number | null;
 	prepare_status: number | null;
 	prepare_url: string | null;
 	prepare_src: string | null;
@@ -85,10 +87,11 @@ export async function POST(request: Request) {
 
 		const body = (await request.json().catch(() => null)) as CreateWebContentPayload | null;
 		const userPk = readPositiveInteger(body?.user_pk);
-		const prepareUrl = readString(body?.prepare_url);
-		const locale = readString(body?.locale) ?? "zh";
-		const writeStyle = readString(body?.write_style);
-		const title = readString(body?.title);
+			const prepareUrl = readString(body?.prepare_url);
+			const locale = readString(body?.locale) ?? "zh";
+			const writeStyle = readString(body?.write_style);
+			const title = readString(body?.title);
+			const coverImgUrl = readString(body?.cover_img_url);
 
 		if (!userPk) {
 			return NextResponse.json({ ok: false, message: "invalid user_pk" }, { status: 400 });
@@ -108,16 +111,17 @@ export async function POST(request: Request) {
 						`INSERT INTO web_contents (
               user_pk,
               write_style,
-              content_slug,
-              locale,
-              title,
-              prepare_status,
-              prepare_url,
-              created_at,
-              updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+	              content_slug,
+	              locale,
+	              title,
+	              cover_img_url,
+	              prepare_status,
+	              prepare_url,
+	              created_at,
+	              updated_at
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
 					)
-					.bind(userPk, writeStyle, candidateSlug, locale, title, 0, prepareUrl)
+					.bind(userPk, writeStyle, candidateSlug, locale, title, coverImgUrl, 0, prepareUrl)
 					.run();
 
 				const nextId = Number(insertResult.meta?.last_row_id ?? 0);
@@ -150,6 +154,7 @@ export async function POST(request: Request) {
             locale,
             title,
             cover_img_url,
+            status,
             prepare_status,
             prepare_url,
             prepare_src,
@@ -172,6 +177,13 @@ export async function POST(request: Request) {
 				content_id: createdId,
 				user_pk: userPk,
 				content_slug: contentSlug,
+				cover_img_url: coverImgUrl,
+				status: 1,
+				prepare_url: prepareUrl,
+				title,
+				locale,
+				write_style: writeStyle,
+				prepare_status: 0,
 			},
 		});
 	} catch (error) {
@@ -195,58 +207,90 @@ export async function GET(request: Request) {
 		const contentId = readPositiveInteger(requestUrl.searchParams.get("content_id"));
 		const userPk = readPositiveInteger(requestUrl.searchParams.get("user_pk"));
 		const limit = toSafeLimit(requestUrl.searchParams.get("limit"));
+		const rawStatus = readString(requestUrl.searchParams.get("status"));
+		const rawPrepareStatus = readString(requestUrl.searchParams.get("prepare_status"));
+
+		let status = 1;
+		if (rawStatus !== null) {
+			if (!/^\d+$/.test(rawStatus)) {
+				return NextResponse.json({ ok: false, message: "invalid status" }, { status: 400 });
+			}
+			const parsed = Number(rawStatus);
+			if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1) {
+				return NextResponse.json({ ok: false, message: "invalid status" }, { status: 400 });
+			}
+			status = parsed;
+		}
+
+		let prepareStatus: number | null = null;
+		if (rawPrepareStatus !== null) {
+			if (!/^\d+$/.test(rawPrepareStatus)) {
+				return NextResponse.json({ ok: false, message: "invalid prepare_status" }, { status: 400 });
+			}
+			const parsed = Number(rawPrepareStatus);
+			if (!Number.isInteger(parsed) || parsed < 0 || parsed > 3) {
+				return NextResponse.json({ ok: false, message: "invalid prepare_status" }, { status: 400 });
+			}
+			prepareStatus = parsed;
+		}
 
 		if (contentSlug || contentId) {
 			const row = contentSlug
 				? await db
 						.prepare(
 							`SELECT
-                  content_id,
-                  user_pk,
-                  write_style,
-                  content_slug,
-                  locale,
+	                  content_id,
+	                  user_pk,
+	                  write_style,
+	                  content_slug,
+	                  locale,
                   title,
                   cover_img_url,
+	                  status,
                   prepare_status,
                   prepare_url,
                   prepare_src,
                   prepare_content,
                   prepare_content_refined,
-                  refine_prepare_content,
-                  batch_id,
-                  created_at,
-                  updated_at
-                FROM web_contents
-                WHERE content_slug = ?
-                LIMIT 1`,
+	                  refine_prepare_content,
+	                  batch_id,
+	                  created_at,
+	                  updated_at
+	                FROM web_contents
+	                WHERE content_slug = ?
+	                AND COALESCE(status, 1) = ?
+	                ${prepareStatus !== null ? "AND prepare_status = ?" : ""}
+	                LIMIT 1`,
 						)
-						.bind(contentSlug)
+						.bind(...(prepareStatus !== null ? [contentSlug, status, prepareStatus] : [contentSlug, status]))
 						.first<WebContentRow>()
 				: await db
 						.prepare(
 							`SELECT
-                  content_id,
-                  user_pk,
-                  write_style,
+	                  content_id,
+	                  user_pk,
+	                  write_style,
                   content_slug,
                   locale,
                   title,
                   cover_img_url,
+	                  status,
                   prepare_status,
                   prepare_url,
                   prepare_src,
                   prepare_content,
                   prepare_content_refined,
-                  refine_prepare_content,
-                  batch_id,
-                  created_at,
-                  updated_at
-                FROM web_contents
-                WHERE content_id = ?
-                LIMIT 1`,
+	                  refine_prepare_content,
+	                  batch_id,
+	                  created_at,
+	                  updated_at
+	                FROM web_contents
+	                WHERE content_id = ?
+	                AND COALESCE(status, 1) = ?
+	                ${prepareStatus !== null ? "AND prepare_status = ?" : ""}
+	                LIMIT 1`,
 						)
-						.bind(contentId as number)
+						.bind(...(prepareStatus !== null ? [contentId as number, status, prepareStatus] : [contentId as number, status]))
 						.first<WebContentRow>();
 
 			if (!row) {
@@ -265,28 +309,31 @@ export async function GET(request: Request) {
 		const rows = await db
 			.prepare(
 				`SELECT
-            content_id,
-            user_pk,
-            write_style,
+	            content_id,
+	            user_pk,
+	            write_style,
             content_slug,
             locale,
             title,
             cover_img_url,
+	            status,
             prepare_status,
             prepare_url,
             prepare_src,
             prepare_content,
             prepare_content_refined,
             refine_prepare_content,
-            batch_id,
-            created_at,
-            updated_at
-          FROM web_contents
-          WHERE user_pk = ?
-          ORDER BY created_at DESC, content_id DESC
-          LIMIT ?`,
+	            batch_id,
+	            created_at,
+	            updated_at
+	          FROM web_contents
+	          WHERE user_pk = ?
+	          AND COALESCE(status, 1) = ?
+	          ${prepareStatus !== null ? "AND prepare_status = ?" : ""}
+	          ORDER BY created_at DESC, content_id DESC
+	          LIMIT ?`,
 			)
-			.bind(userPk, limit)
+			.bind(...(prepareStatus !== null ? [userPk, status, prepareStatus, limit] : [userPk, status, limit]))
 			.all<WebContentRow>();
 
 		return NextResponse.json({
