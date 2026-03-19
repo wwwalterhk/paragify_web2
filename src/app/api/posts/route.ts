@@ -7,6 +7,7 @@ type PostRow = {
 	post_slug: string | null;
 	brand_slug: string | null;
 	cat_code: string | null;
+	site: string | null;
 	locale: string | null;
 	caption: string | null;
 	sell_car: number | null;
@@ -52,6 +53,7 @@ type PostEditRow = {
 	post_slug: string | null;
 	user_pk: number;
 	cat_code: string | null;
+	site: string | null;
 	locale: string | null;
 	caption: string | null;
 	show_page_content: number | null;
@@ -188,6 +190,7 @@ type PendingGeminiBatchRow = {
 	post_id: number;
 	user_pk: number;
 	cat_code: string | null;
+	site: string | null;
 	prepare_status: string | null;
 	prepare_url: string | null;
 	title: string | null;
@@ -206,6 +209,7 @@ type FetchUrlBatchDoneReadyRow = {
 	post_id: number;
 	user_pk: number;
 	cat_code: string | null;
+	site: string | null;
 	prepare_status: string | null;
 	prepare_url: string | null;
 	title: string | null;
@@ -735,18 +739,32 @@ function isNoSuchColumnError(error: unknown): boolean {
 	return `${error}`.toLowerCase().includes("no such column");
 }
 
-async function loadPostCatCodeMap(db: D1Database, postIds: number[]): Promise<Map<number, string | null>> {
+type PostMetaRow = {
+	post_id: number;
+	cat_code: string | null;
+	site: string | null;
+};
+
+async function loadPostMetaMap(db: D1Database, postIds: number[]): Promise<Map<number, { cat_code: string | null; site: string | null }>> {
 	const uniquePostIds = Array.from(new Set(postIds.filter((postId) => Number.isInteger(postId) && postId > 0)));
 	if (!uniquePostIds.length) return new Map();
 
 	try {
 		const placeholders = uniquePostIds.map(() => "?").join(", ");
 		const rows = await db
-			.prepare(`SELECT post_id, cat_code FROM posts WHERE post_id IN (${placeholders})`)
+			.prepare(`SELECT post_id, cat_code, site FROM posts WHERE post_id IN (${placeholders})`)
 			.bind(...uniquePostIds)
-			.all<{ post_id: number; cat_code: string | null }>();
+			.all<PostMetaRow>();
 
-		return new Map((rows.results ?? []).map((row) => [row.post_id, row.cat_code]));
+		return new Map(
+			(rows.results ?? []).map((row) => [
+				row.post_id,
+				{
+					cat_code: row.cat_code,
+					site: row.site,
+				},
+			]),
+		);
 	} catch (error) {
 		if (isNoSuchColumnError(error)) {
 			return new Map();
@@ -1964,10 +1982,11 @@ export async function GET(request: Request) {
 		const fetchUrlBatchPendingRaw = (requestUrl.searchParams.get("fetch_url_batch_pending") || "").trim().toLowerCase();
 		if (fetchUrlBatchPendingRaw === "1" || fetchUrlBatchPendingRaw === "true" || fetchUrlBatchPendingRaw === "yes") {
 			const pendingRows = await loadPendingFetchUrlBatch(db);
-			const catCodeMap = await loadPostCatCodeMap(db, pendingRows.map((row) => row.post_id));
+			const postMetaMap = await loadPostMetaMap(db, pendingRows.map((row) => row.post_id));
 			const pending = pendingRows.map((row) => ({
 				...row,
-				cat_code: catCodeMap.get(row.post_id) ?? null,
+				cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+				site: postMetaMap.get(row.post_id)?.site ?? null,
 			}));
 			return NextResponse.json({
 				ok: true,
@@ -1986,10 +2005,11 @@ export async function GET(request: Request) {
 			prepareContentBatchPendingRaw === "yes"
 		) {
 			const pendingRows = await loadPendingPrepareContentBatch(db);
-			const catCodeMap = await loadPostCatCodeMap(db, pendingRows.map((row) => row.post_id));
+			const postMetaMap = await loadPostMetaMap(db, pendingRows.map((row) => row.post_id));
 			const pending = pendingRows.map((row) => ({
 				...row,
-				cat_code: catCodeMap.get(row.post_id) ?? null,
+				cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+				site: postMetaMap.get(row.post_id)?.site ?? null,
 			}));
 			return NextResponse.json({
 				ok: true,
@@ -2002,10 +2022,11 @@ export async function GET(request: Request) {
 		const fetchUrlBatchDoneReadyRaw = (requestUrl.searchParams.get("fetch_url_batch_done_ready") || "").trim().toLowerCase();
 		if (fetchUrlBatchDoneReadyRaw === "1" || fetchUrlBatchDoneReadyRaw === "true" || fetchUrlBatchDoneReadyRaw === "yes") {
 			const readyPosts = await loadFetchUrlBatchDoneReadyPosts(db);
-			const catCodeMap = await loadPostCatCodeMap(db, readyPosts.map((row) => row.post_id));
+			const postMetaMap = await loadPostMetaMap(db, readyPosts.map((row) => row.post_id));
 			const posts = readyPosts.map((row) => ({
 				...row,
-				cat_code: catCodeMap.get(row.post_id) ?? null,
+				cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+				site: postMetaMap.get(row.post_id)?.site ?? null,
 			}));
 			return NextResponse.json({
 				ok: true,
@@ -2023,13 +2044,14 @@ export async function GET(request: Request) {
 			if (!loaded) {
 				return NextResponse.json({ ok: false, message: "post not found" }, { status: 404 });
 			}
-			const catCodeMap = await loadPostCatCodeMap(db, [loaded.post.post_id]);
+			const postMetaMap = await loadPostMetaMap(db, [loaded.post.post_id]);
 
 			return NextResponse.json({
 				ok: true,
 				post: {
 					...loaded.post,
-					cat_code: catCodeMap.get(loaded.post.post_id) ?? null,
+					cat_code: postMetaMap.get(loaded.post.post_id)?.cat_code ?? null,
+					site: postMetaMap.get(loaded.post.post_id)?.site ?? null,
 				},
 				pages: loaded.pages,
 			});
@@ -2037,10 +2059,11 @@ export async function GET(request: Request) {
 
 		const preparePosts = await loadPreparePosts(db, requestedPrepareStatus);
 		if (!preparePosts.length) return NextResponse.json({ ok: true, count: 0, posts: [], pages: [] });
-		const catCodeMap = await loadPostCatCodeMap(db, preparePosts.map((row) => row.post_id));
+		const postMetaMap = await loadPostMetaMap(db, preparePosts.map((row) => row.post_id));
 		const posts = preparePosts.map((row) => ({
 			...row,
-			cat_code: catCodeMap.get(row.post_id) ?? null,
+			cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+			site: postMetaMap.get(row.post_id)?.site ?? null,
 		}));
 
 		const pages = await loadPreparePostPages(db, requestedPrepareStatus);
