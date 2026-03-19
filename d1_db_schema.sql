@@ -316,7 +316,8 @@ CREATE TABLE IF NOT EXISTS posts (
   updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   prepare_post_id INTEGER, -- FK to another post_id if this is a prepared post derived from another (e.g. for AI generation)
   prepare_src    TEXT, -- original text content of prepare_url
-  cat_code    TEXT -- category code for this post, e.g. car, tech, lifestyle (can be used for filtering and display)
+  cat_code    TEXT, -- category code for this post, e.g. car, tech, lifestyle (can be used for filtering and display)
+  site    TEXT -- site of the data source, e.g. 328car, if null, it is a post of paragify.com, it share the table for generating prepared data
   -- FOREIGN KEY (user_pk) REFERENCES users(user_pk)
 );
 CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_pk, created_at DESC);

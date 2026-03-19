@@ -40,6 +40,7 @@ type CreatePrepareRequestBody = {
 	user_pk?: unknown;
 	brand_slug?: unknown;
 	cat_code?: unknown;
+	site?: unknown;
 };
 
 type UpdatePrepareRequestBody = {
@@ -185,6 +186,7 @@ export async function POST(request: Request) {
 		const userPk = parseBodyUserPk(body?.user_pk);
 		const brandSlug = readString(body?.brand_slug)?.toLowerCase() ?? null;
 		const catCode = readString(body?.cat_code)?.toLowerCase() ?? null;
+		const site = readString(body?.site)?.toLowerCase() ?? null;
 
 		if (!prepareUrl) {
 			return NextResponse.json({ ok: false, message: "prepare_url is required" }, { status: 400 });
@@ -204,10 +206,10 @@ export async function POST(request: Request) {
 
 		const insertResult = await db
 			.prepare(
-				`INSERT INTO posts (user_pk, brand_slug, cat_code, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
+				`INSERT INTO posts (user_pk, brand_slug, cat_code, site, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
 			)
-			.bind(userPk, brandSlug, catCode, writingLocale, prepareUrl)
+			.bind(userPk, brandSlug, catCode, site, writingLocale, prepareUrl)
 			.run();
 
 		return NextResponse.json({
@@ -216,6 +218,7 @@ export async function POST(request: Request) {
 			user_pk: userPk,
 			brand_slug: brandSlug,
 			cat_code: catCode,
+			site,
 			locale: writingLocale,
 			prepare_url: prepareUrl,
 			prepare_status: "fetch_url",
