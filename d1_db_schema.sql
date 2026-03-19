@@ -315,7 +315,8 @@ CREATE TABLE IF NOT EXISTS posts (
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   prepare_post_id INTEGER, -- FK to another post_id if this is a prepared post derived from another (e.g. for AI generation)
-  prepare_src    TEXT -- original text content of prepare_url
+  prepare_src    TEXT, -- original text content of prepare_url
+  cat_code    TEXT -- category code for this post, e.g. car, tech, lifestyle (can be used for filtering and display)
   -- FOREIGN KEY (user_pk) REFERENCES users(user_pk)
 );
 CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_pk, created_at DESC);
@@ -559,3 +560,370 @@ CREATE TABLE IF NOT EXISTS web_contents (
 );
 CREATE INDEX IF NOT EXISTS idx_web_contents_user_created ON web_contents(user_pk, created_at DESC);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- Post taxonomy: canonical rows
+CREATE TABLE IF NOT EXISTS posts_categories (
+  posts_category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS posts_subcategories (
+  posts_subcategory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  posts_category_id INTEGER NOT NULL,
+  code TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  -- FOREIGN KEY (posts_category_id) REFERENCES posts_categories(posts_category_id)
+);
+
+-- Localized labels / slugs
+CREATE TABLE IF NOT EXISTS posts_category_translations (
+  posts_category_id INTEGER NOT NULL,
+  locale TEXT NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  -- FOREIGN KEY (posts_category_id) REFERENCES posts_categories(posts_category_id)
+);
+
+CREATE TABLE IF NOT EXISTS posts_subcategory_translations (
+  posts_subcategory_id INTEGER NOT NULL,
+  locale TEXT NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  -- FOREIGN KEY (posts_subcategory_id) REFERENCES posts_subcategories(posts_subcategory_id)
+);
+
+-- Many-to-many link between posts and taxonomy
+CREATE TABLE IF NOT EXISTS posts_subcategory_assignments (
+  post_id INTEGER NOT NULL,
+  posts_subcategory_id INTEGER NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  -- FOREIGN KEY (post_id) REFERENCES posts(post_id),
+  -- FOREIGN KEY (posts_subcategory_id) REFERENCES posts_subcategories(posts_subcategory_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_categories_code
+ON posts_categories(code);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_subcategories_category_code
+ON posts_subcategories(posts_category_id, code);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_category_translations_category_locale
+ON posts_category_translations(posts_category_id, locale);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_category_translations_locale_slug
+ON posts_category_translations(locale, slug);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_subcategory_translations_subcategory_locale
+ON posts_subcategory_translations(posts_subcategory_id, locale);
+
+-- Subcategory slug is resolved together with category slug, so this is indexed but not globally unique
+CREATE INDEX IF NOT EXISTS idx_posts_subcategory_translations_locale_slug
+ON posts_subcategory_translations(locale, slug);
+
+CREATE INDEX IF NOT EXISTS idx_posts_subcategories_category
+ON posts_subcategories(posts_category_id, sort_order, posts_subcategory_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_subcategory_assignments_unique
+ON posts_subcategory_assignments(post_id, posts_subcategory_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_subcategory_assignments_primary
+ON posts_subcategory_assignments(post_id)
+WHERE is_primary = 1;
+
+CREATE INDEX IF NOT EXISTS idx_posts_subcategory_assignments_post
+ON posts_subcategory_assignments(post_id, is_primary DESC, sort_order, posts_subcategory_id);
+
+CREATE INDEX IF NOT EXISTS idx_posts_subcategory_assignments_subcategory
+ON posts_subcategory_assignments(posts_subcategory_id, post_id);
+
+
+
+
+INSERT OR IGNORE INTO posts_categories (code, sort_order, is_active) VALUES
+  ('tech', 10, 1),
+  ('gaming', 20, 1),
+  ('toys', 30, 1),
+  ('automotive', 40, 1),
+  ('food', 50, 1),
+  ('science', 60, 1),
+  ('watches', 70, 1),
+  ('drinks', 80, 1),
+  ('clothing', 90, 1),
+  ('news', 100, 1),
+  ('lifestyle', 110, 1);
+
+
+WITH seed(code, locale, name, slug, description, sort_order) AS (
+  VALUES
+    ('tech', 'en', 'Tech', 'tech', NULL, 10),
+    ('gaming', 'en', 'Gaming', 'gaming', NULL, 20),
+    ('toys', 'en', 'Toys', 'toys', NULL, 30),
+    ('automotive', 'en', 'Automotive', 'automotive', NULL, 40),
+    ('food', 'en', 'Food', 'food', NULL, 50),
+    ('science', 'en', 'Science', 'science', NULL, 60),
+    ('watches', 'en', 'Watches', 'watches', NULL, 70),
+    ('drinks', 'en', 'Drinks', 'drinks', NULL, 80),
+    ('clothing', 'en', 'Clothing', 'clothing', NULL, 90),
+    ('news', 'en', 'News', 'news', NULL, 100),
+    ('lifestyle', 'en', 'Lifestyle', 'lifestyle', NULL, 110)
+)
+INSERT OR IGNORE INTO posts_category_translations (
+  posts_category_id,
+  locale,
+  name,
+  slug,
+  description
+)
+SELECT
+  pc.posts_category_id,
+  s.locale,
+  s.name,
+  s.slug,
+  s.description
+FROM seed s
+JOIN posts_categories pc
+  ON pc.code = s.code
+ORDER BY s.sort_order;
+
+
+
+WITH seed (
+  category_code,
+  subcategory_code,
+  sort_order,
+  is_active
+) AS (
+  VALUES
+    ('tech', 'phones', 10, 1),
+    ('tech', 'computers', 20, 1),
+    ('tech', 'audio', 30, 1),
+    ('tech', 'cameras', 40, 1),
+    ('tech', 'apps', 50, 1),
+    ('tech', 'ai', 60, 1),
+    ('tech', 'smart-home', 70, 1),
+    ('tech', 'accessories', 80, 1),
+
+    ('gaming', 'console-gaming', 10, 1),
+    ('gaming', 'pc-gaming', 20, 1),
+    ('gaming', 'handheld-gaming', 30, 1),
+    ('gaming', 'mobile-gaming', 40, 1),
+    ('gaming', 'gaming-accessories', 50, 1),
+    ('gaming', 'video-games', 60, 1),
+
+    ('toys', 'action-figures', 10, 1),
+    ('toys', 'collectibles', 20, 1),
+    ('toys', 'building-sets', 30, 1),
+    ('toys', 'board-games', 40, 1),
+    ('toys', 'educational-toys', 50, 1),
+    ('toys', 'remote-control', 60, 1),
+
+    ('automotive', 'cars', 10, 1),
+    ('automotive', 'ev', 20, 1),
+    ('automotive', 'motorcycles', 30, 1),
+    ('automotive', 'car-accessories', 40, 1),
+    ('automotive', 'car-care', 50, 1),
+    ('automotive', 'maintenance', 60, 1),
+
+    ('food', 'recipes', 10, 1),
+    ('food', 'restaurants', 20, 1),
+    ('food', 'snacks', 30, 1),
+    ('food', 'desserts', 40, 1),
+    ('food', 'ingredients', 50, 1),
+    ('food', 'cooking-tools', 60, 1),
+
+    ('science', 'space', 10, 1),
+    ('science', 'physics', 20, 1),
+    ('science', 'biology', 30, 1),
+    ('science', 'chemistry', 40, 1),
+    ('science', 'earth-science', 50, 1),
+    ('science', 'research', 60, 1),
+
+    ('watches', 'luxury-watches', 10, 1),
+    ('watches', 'smartwatches', 20, 1),
+    ('watches', 'dress-watches', 30, 1),
+    ('watches', 'sports-watches', 40, 1),
+    ('watches', 'watch-accessories', 50, 1),
+    ('watches', 'watch-care', 60, 1),
+
+    ('drinks', 'coffee', 10, 1),
+    ('drinks', 'tea', 20, 1),
+    ('drinks', 'juice', 30, 1),
+    ('drinks', 'soda', 40, 1),
+    ('drinks', 'cocktails', 50, 1),
+    ('drinks', 'spirits', 60, 1),
+
+    ('clothing', 'tops', 10, 1),
+    ('clothing', 'bottoms', 20, 1),
+    ('clothing', 'outerwear', 30, 1),
+    ('clothing', 'shoes', 40, 1),
+    ('clothing', 'bags', 50, 1),
+    ('clothing', 'accessories', 60, 1),
+
+    ('news', 'breaking-news', 10, 1),
+    ('news', 'product-launches', 20, 1),
+    ('news', 'industry-news', 30, 1),
+    ('news', 'company-news', 40, 1),
+    ('news', 'policy', 50, 1),
+    ('news', 'market-trends', 60, 1),
+
+    ('lifestyle', 'home-living', 10, 1),
+    ('lifestyle', 'wellness', 20, 1),
+    ('lifestyle', 'travel', 30, 1),
+    ('lifestyle', 'beauty', 40, 1),
+    ('lifestyle', 'self-care', 50, 1),
+    ('lifestyle', 'productivity', 60, 1)
+)
+INSERT OR IGNORE INTO posts_subcategories (
+  posts_category_id,
+  code,
+  sort_order,
+  is_active
+)
+SELECT
+  pc.posts_category_id,
+  s.subcategory_code,
+  s.sort_order,
+  s.is_active
+FROM seed s
+JOIN posts_categories pc
+  ON pc.code = s.category_code
+ORDER BY s.category_code, s.sort_order;
+
+
+
+WITH seed (
+  category_code,
+  subcategory_code,
+  locale,
+  name,
+  slug,
+  description,
+  sort_order
+) AS (
+  VALUES
+    ('tech', 'phones', 'en', 'Phones', 'phones', NULL, 10),
+    ('tech', 'computers', 'en', 'Computers', 'computers', NULL, 20),
+    ('tech', 'audio', 'en', 'Audio', 'audio', NULL, 30),
+    ('tech', 'cameras', 'en', 'Cameras', 'cameras', NULL, 40),
+    ('tech', 'apps', 'en', 'Apps', 'apps', NULL, 50),
+    ('tech', 'ai', 'en', 'AI', 'ai', NULL, 60),
+    ('tech', 'smart-home', 'en', 'Smart Home', 'smart-home', NULL, 70),
+    ('tech', 'accessories', 'en', 'Accessories', 'accessories', NULL, 80),
+
+    ('gaming', 'console-gaming', 'en', 'Console Gaming', 'console-gaming', NULL, 10),
+    ('gaming', 'pc-gaming', 'en', 'PC Gaming', 'pc-gaming', NULL, 20),
+    ('gaming', 'handheld-gaming', 'en', 'Handheld Gaming', 'handheld-gaming', NULL, 30),
+    ('gaming', 'mobile-gaming', 'en', 'Mobile Gaming', 'mobile-gaming', NULL, 40),
+    ('gaming', 'gaming-accessories', 'en', 'Gaming Accessories', 'gaming-accessories', NULL, 50),
+    ('gaming', 'video-games', 'en', 'Video Games', 'video-games', NULL, 60),
+
+    ('toys', 'action-figures', 'en', 'Action Figures', 'action-figures', NULL, 10),
+    ('toys', 'collectibles', 'en', 'Collectibles', 'collectibles', NULL, 20),
+    ('toys', 'building-sets', 'en', 'Building Sets', 'building-sets', NULL, 30),
+    ('toys', 'board-games', 'en', 'Board Games', 'board-games', NULL, 40),
+    ('toys', 'educational-toys', 'en', 'Educational Toys', 'educational-toys', NULL, 50),
+    ('toys', 'remote-control', 'en', 'Remote Control', 'remote-control', NULL, 60),
+
+    ('automotive', 'cars', 'en', 'Cars', 'cars', NULL, 10),
+    ('automotive', 'ev', 'en', 'EV', 'ev', NULL, 20),
+    ('automotive', 'motorcycles', 'en', 'Motorcycles', 'motorcycles', NULL, 30),
+    ('automotive', 'car-accessories', 'en', 'Car Accessories', 'car-accessories', NULL, 40),
+    ('automotive', 'car-care', 'en', 'Car Care', 'car-care', NULL, 50),
+    ('automotive', 'maintenance', 'en', 'Maintenance', 'maintenance', NULL, 60),
+
+    ('food', 'recipes', 'en', 'Recipes', 'recipes', NULL, 10),
+    ('food', 'restaurants', 'en', 'Restaurants', 'restaurants', NULL, 20),
+    ('food', 'snacks', 'en', 'Snacks', 'snacks', NULL, 30),
+    ('food', 'desserts', 'en', 'Desserts', 'desserts', NULL, 40),
+    ('food', 'ingredients', 'en', 'Ingredients', 'ingredients', NULL, 50),
+    ('food', 'cooking-tools', 'en', 'Cooking Tools', 'cooking-tools', NULL, 60),
+
+    ('science', 'space', 'en', 'Space', 'space', NULL, 10),
+    ('science', 'physics', 'en', 'Physics', 'physics', NULL, 20),
+    ('science', 'biology', 'en', 'Biology', 'biology', NULL, 30),
+    ('science', 'chemistry', 'en', 'Chemistry', 'chemistry', NULL, 40),
+    ('science', 'earth-science', 'en', 'Earth Science', 'earth-science', NULL, 50),
+    ('science', 'research', 'en', 'Research', 'research', NULL, 60),
+
+    ('watches', 'luxury-watches', 'en', 'Luxury Watches', 'luxury-watches', NULL, 10),
+    ('watches', 'smartwatches', 'en', 'Smartwatches', 'smartwatches', NULL, 20),
+    ('watches', 'dress-watches', 'en', 'Dress Watches', 'dress-watches', NULL, 30),
+    ('watches', 'sports-watches', 'en', 'Sports Watches', 'sports-watches', NULL, 40),
+    ('watches', 'watch-accessories', 'en', 'Watch Accessories', 'watch-accessories', NULL, 50),
+    ('watches', 'watch-care', 'en', 'Watch Care', 'watch-care', NULL, 60),
+
+    ('drinks', 'coffee', 'en', 'Coffee', 'coffee', NULL, 10),
+    ('drinks', 'tea', 'en', 'Tea', 'tea', NULL, 20),
+    ('drinks', 'juice', 'en', 'Juice', 'juice', NULL, 30),
+    ('drinks', 'soda', 'en', 'Soda', 'soda', NULL, 40),
+    ('drinks', 'cocktails', 'en', 'Cocktails', 'cocktails', NULL, 50),
+    ('drinks', 'spirits', 'en', 'Spirits', 'spirits', NULL, 60),
+
+    ('clothing', 'tops', 'en', 'Tops', 'tops', NULL, 10),
+    ('clothing', 'bottoms', 'en', 'Bottoms', 'bottoms', NULL, 20),
+    ('clothing', 'outerwear', 'en', 'Outerwear', 'outerwear', NULL, 30),
+    ('clothing', 'shoes', 'en', 'Shoes', 'shoes', NULL, 40),
+    ('clothing', 'bags', 'en', 'Bags', 'bags', NULL, 50),
+    ('clothing', 'accessories', 'en', 'Accessories', 'accessories', NULL, 60),
+
+    ('news', 'breaking-news', 'en', 'Breaking News', 'breaking-news', NULL, 10),
+    ('news', 'product-launches', 'en', 'Product Launches', 'product-launches', NULL, 20),
+    ('news', 'industry-news', 'en', 'Industry News', 'industry-news', NULL, 30),
+    ('news', 'company-news', 'en', 'Company News', 'company-news', NULL, 40),
+    ('news', 'policy', 'en', 'Policy', 'policy', NULL, 50),
+    ('news', 'market-trends', 'en', 'Market Trends', 'market-trends', NULL, 60),
+
+    ('lifestyle', 'home-living', 'en', 'Home Living', 'home-living', NULL, 10),
+    ('lifestyle', 'wellness', 'en', 'Wellness', 'wellness', NULL, 20),
+    ('lifestyle', 'travel', 'en', 'Travel', 'travel', NULL, 30),
+    ('lifestyle', 'beauty', 'en', 'Beauty', 'beauty', NULL, 40),
+    ('lifestyle', 'self-care', 'en', 'Self Care', 'self-care', NULL, 50),
+    ('lifestyle', 'productivity', 'en', 'Productivity', 'productivity', NULL, 60)
+)
+INSERT OR IGNORE INTO posts_subcategory_translations (
+  posts_subcategory_id,
+  locale,
+  name,
+  slug,
+  description
+)
+SELECT
+  psc.posts_subcategory_id,
+  s.locale,
+  s.name,
+  s.slug,
+  s.description
+FROM seed s
+JOIN posts_categories pc
+  ON pc.code = s.category_code
+JOIN posts_subcategories psc
+  ON psc.posts_category_id = pc.posts_category_id
+ AND psc.code = s.subcategory_code
+ORDER BY s.category_code, s.sort_order;

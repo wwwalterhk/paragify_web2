@@ -21,6 +21,7 @@ type PreparePostRow = {
 	user_pk: number;
 	post_slug: string | null;
 	title: string | null;
+	cat_code: string | null;
 	prepare_status: string | null;
 	visibility: string;
 	prepare_content: string | null;
@@ -38,6 +39,7 @@ type CreatePrepareRequestBody = {
 	prepare_url?: unknown;
 	user_pk?: unknown;
 	brand_slug?: unknown;
+	cat_code?: unknown;
 };
 
 type UpdatePrepareRequestBody = {
@@ -182,6 +184,7 @@ export async function POST(request: Request) {
 		const prepareUrl = readString(body?.prepare_url);
 		const userPk = parseBodyUserPk(body?.user_pk);
 		const brandSlug = readString(body?.brand_slug)?.toLowerCase() ?? null;
+		const catCode = readString(body?.cat_code)?.toLowerCase() ?? null;
 
 		if (!prepareUrl) {
 			return NextResponse.json({ ok: false, message: "prepare_url is required" }, { status: 400 });
@@ -199,27 +202,20 @@ export async function POST(request: Request) {
 		}
 		const writingLocale = readString(userExists.writing_locale);
 
-		const insertResult = brandSlug
-			? await db
-					.prepare(
-						`INSERT INTO posts (user_pk, brand_slug, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
-					)
-					.bind(userPk, brandSlug, writingLocale, prepareUrl)
-					.run()
-			: await db
-					.prepare(
-						`INSERT INTO posts (user_pk, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
-           VALUES (?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
-					)
-					.bind(userPk, writingLocale, prepareUrl)
-					.run();
+		const insertResult = await db
+			.prepare(
+				`INSERT INTO posts (user_pk, brand_slug, cat_code, locale, prepare_url, prepare_status, visibility, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'fetch_url', 'prepare', datetime('now'), datetime('now'))`,
+			)
+			.bind(userPk, brandSlug, catCode, writingLocale, prepareUrl)
+			.run();
 
 		return NextResponse.json({
 			ok: true,
 			post_id: insertResult.meta?.last_row_id ?? null,
 			user_pk: userPk,
 			brand_slug: brandSlug,
+			cat_code: catCode,
 			locale: writingLocale,
 			prepare_url: prepareUrl,
 			prepare_status: "fetch_url",
@@ -357,6 +353,7 @@ export async function GET(request: Request) {
             p.user_pk,
             p.post_slug,
             p.title,
+            p.cat_code,
             p.prepare_status,
             p.visibility,
             p.prepare_content,

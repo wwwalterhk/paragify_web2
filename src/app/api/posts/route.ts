@@ -6,6 +6,7 @@ type PostRow = {
 	user_pk: number;
 	post_slug: string | null;
 	brand_slug: string | null;
+	cat_code: string | null;
 	locale: string | null;
 	caption: string | null;
 	sell_car: number | null;
@@ -50,6 +51,7 @@ type PostEditRow = {
 	post_id: number;
 	post_slug: string | null;
 	user_pk: number;
+	cat_code: string | null;
 	locale: string | null;
 	caption: string | null;
 	show_page_content: number | null;
@@ -185,6 +187,7 @@ type GeminiBatchUpdateResult =
 type PendingGeminiBatchRow = {
 	post_id: number;
 	user_pk: number;
+	cat_code: string | null;
 	prepare_status: string | null;
 	prepare_url: string | null;
 	title: string | null;
@@ -202,6 +205,7 @@ type PendingGeminiBatchRow = {
 type FetchUrlBatchDoneReadyRow = {
 	post_id: number;
 	user_pk: number;
+	cat_code: string | null;
 	prepare_status: string | null;
 	prepare_url: string | null;
 	title: string | null;
@@ -729,6 +733,26 @@ function extractSavePayloadFromPreparePlan(value: unknown): SavePostPayload | nu
 
 function isNoSuchColumnError(error: unknown): boolean {
 	return `${error}`.toLowerCase().includes("no such column");
+}
+
+async function loadPostCatCodeMap(db: D1Database, postIds: number[]): Promise<Map<number, string | null>> {
+	const uniquePostIds = Array.from(new Set(postIds.filter((postId) => Number.isInteger(postId) && postId > 0)));
+	if (!uniquePostIds.length) return new Map();
+
+	try {
+		const placeholders = uniquePostIds.map(() => "?").join(", ");
+		const rows = await db
+			.prepare(`SELECT post_id, cat_code FROM posts WHERE post_id IN (${placeholders})`)
+			.bind(...uniquePostIds)
+			.all<{ post_id: number; cat_code: string | null }>();
+
+		return new Map((rows.results ?? []).map((row) => [row.post_id, row.cat_code]));
+	} catch (error) {
+		if (isNoSuchColumnError(error)) {
+			return new Map();
+		}
+		throw error;
+	}
 }
 
 async function loadPreparePosts(db: D1Database, prepareStatus: string | null = null): Promise<PostRow[]> {
@@ -1940,10 +1964,15 @@ export async function GET(request: Request) {
 		const fetchUrlBatchPendingRaw = (requestUrl.searchParams.get("fetch_url_batch_pending") || "").trim().toLowerCase();
 		if (fetchUrlBatchPendingRaw === "1" || fetchUrlBatchPendingRaw === "true" || fetchUrlBatchPendingRaw === "yes") {
 			const pendingRows = await loadPendingFetchUrlBatch(db);
+			const catCodeMap = await loadPostCatCodeMap(db, pendingRows.map((row) => row.post_id));
+			const pending = pendingRows.map((row) => ({
+				...row,
+				cat_code: catCodeMap.get(row.post_id) ?? null,
+			}));
 			return NextResponse.json({
 				ok: true,
-				count: pendingRows.length,
-				pending: pendingRows,
+				count: pending.length,
+				pending,
 				gemini_batch_update_action: GEMINI_BATCH_ACTION,
 				gemini_info_spec: GEMINI_BATCH_UPDATE_GEMINI_INFO_SPEC,
 			});
@@ -1957,17 +1986,27 @@ export async function GET(request: Request) {
 			prepareContentBatchPendingRaw === "yes"
 		) {
 			const pendingRows = await loadPendingPrepareContentBatch(db);
+			const catCodeMap = await loadPostCatCodeMap(db, pendingRows.map((row) => row.post_id));
+			const pending = pendingRows.map((row) => ({
+				...row,
+				cat_code: catCodeMap.get(row.post_id) ?? null,
+			}));
 			return NextResponse.json({
 				ok: true,
-				count: pendingRows.length,
-				pending: pendingRows,
+				count: pending.length,
+				pending,
 				gemini_batch_update_action: GEMINI_BATCH_ACTION,
 				gemini_info_spec: GEMINI_BATCH_UPDATE_GEMINI_INFO_SPEC,
 			});
 		}
 		const fetchUrlBatchDoneReadyRaw = (requestUrl.searchParams.get("fetch_url_batch_done_ready") || "").trim().toLowerCase();
 		if (fetchUrlBatchDoneReadyRaw === "1" || fetchUrlBatchDoneReadyRaw === "true" || fetchUrlBatchDoneReadyRaw === "yes") {
-			const posts = await loadFetchUrlBatchDoneReadyPosts(db);
+			const readyPosts = await loadFetchUrlBatchDoneReadyPosts(db);
+			const catCodeMap = await loadPostCatCodeMap(db, readyPosts.map((row) => row.post_id));
+			const posts = readyPosts.map((row) => ({
+				...row,
+				cat_code: catCodeMap.get(row.post_id) ?? null,
+			}));
 			return NextResponse.json({
 				ok: true,
 				count: posts.length,
@@ -1984,16 +2023,25 @@ export async function GET(request: Request) {
 			if (!loaded) {
 				return NextResponse.json({ ok: false, message: "post not found" }, { status: 404 });
 			}
+			const catCodeMap = await loadPostCatCodeMap(db, [loaded.post.post_id]);
 
 			return NextResponse.json({
 				ok: true,
-				post: loaded.post,
+				post: {
+					...loaded.post,
+					cat_code: catCodeMap.get(loaded.post.post_id) ?? null,
+				},
 				pages: loaded.pages,
 			});
 		}
 
-		const posts = await loadPreparePosts(db, requestedPrepareStatus);
-		if (!posts.length) return NextResponse.json({ ok: true, count: 0, posts: [], pages: [] });
+		const preparePosts = await loadPreparePosts(db, requestedPrepareStatus);
+		if (!preparePosts.length) return NextResponse.json({ ok: true, count: 0, posts: [], pages: [] });
+		const catCodeMap = await loadPostCatCodeMap(db, preparePosts.map((row) => row.post_id));
+		const posts = preparePosts.map((row) => ({
+			...row,
+			cat_code: catCodeMap.get(row.post_id) ?? null,
+		}));
 
 		const pages = await loadPreparePostPages(db, requestedPrepareStatus);
 
