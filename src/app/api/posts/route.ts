@@ -7,6 +7,7 @@ type PostRow = {
 	post_slug: string | null;
 	brand_slug: string | null;
 	cat_code: string | null;
+	sub_cat_code: string | null;
 	site: string | null;
 	locale: string | null;
 	caption: string | null;
@@ -53,6 +54,7 @@ type PostEditRow = {
 	post_slug: string | null;
 	user_pk: number;
 	cat_code: string | null;
+	sub_cat_code: string | null;
 	site: string | null;
 	locale: string | null;
 	caption: string | null;
@@ -190,6 +192,7 @@ type PendingGeminiBatchRow = {
 	post_id: number;
 	user_pk: number;
 	cat_code: string | null;
+	sub_cat_code: string | null;
 	site: string | null;
 	prepare_status: string | null;
 	prepare_url: string | null;
@@ -209,6 +212,7 @@ type FetchUrlBatchDoneReadyRow = {
 	post_id: number;
 	user_pk: number;
 	cat_code: string | null;
+	sub_cat_code: string | null;
 	site: string | null;
 	prepare_status: string | null;
 	prepare_url: string | null;
@@ -537,6 +541,53 @@ function normalizeJsonText(value: unknown): string | null {
 	return JSON.stringify(parsed);
 }
 
+function extractPrepareSrcOrg(value: unknown): Record<string, unknown> | null {
+	const parsed = parsePossiblyEscapedJson(value, 4);
+	const record = asRecord(parsed);
+	if (!record) return null;
+
+	const readSourceString = (input: unknown): string | null => {
+		if (typeof input !== "string") return null;
+		return input.trim();
+	};
+
+	const hashtagsValue = parsePossiblyEscapedJson(record.hashtags, 2);
+	const hashtags = Array.isArray(hashtagsValue)
+		? hashtagsValue
+				.filter((item): item is string => typeof item === "string")
+				.map((item) => item.trim())
+		: null;
+
+	return {
+		category: readSourceString(record.category),
+		subcategory: readSourceString(record.subcategory),
+		subcat_code: readSourceString(record.subcat_code),
+		brand: readSourceString(record.brand),
+		model: readSourceString(record.model),
+		celebrity: readSourceString(record.celebrity),
+		hashtags,
+	};
+}
+
+function mergePrepareContentWithSrcOrg(prepareContentValue: unknown, prepareSrcValue: unknown): string | null {
+	const parsedPrepareContent = parsePossiblyEscapedJson(prepareContentValue, 4);
+	const prepareContentRecord = asRecord(parsedPrepareContent);
+	const srcOrg = extractPrepareSrcOrg(prepareSrcValue);
+	if (!prepareContentRecord || !srcOrg) {
+		return normalizeJsonText(prepareContentValue);
+	}
+
+	const existingSrcOrg = asRecord(parsePossiblyEscapedJson(prepareContentRecord.src_org, 2)) ?? {};
+
+	return JSON.stringify({
+		...prepareContentRecord,
+		src_org: {
+			...existingSrcOrg,
+			...srcOrg,
+		},
+	});
+}
+
 function isGeminiBatchPrepareStatus(value: string | null | undefined): value is GeminiBatchPrepareStatus {
 	return (
 		value === GEMINI_BATCH_PREPARE_STATUS_FETCH_URL_CREATE ||
@@ -742,17 +793,21 @@ function isNoSuchColumnError(error: unknown): boolean {
 type PostMetaRow = {
 	post_id: number;
 	cat_code: string | null;
+	sub_cat_code: string | null;
 	site: string | null;
 };
 
-async function loadPostMetaMap(db: D1Database, postIds: number[]): Promise<Map<number, { cat_code: string | null; site: string | null }>> {
+async function loadPostMetaMap(
+	db: D1Database,
+	postIds: number[],
+): Promise<Map<number, { cat_code: string | null; sub_cat_code: string | null; site: string | null }>> {
 	const uniquePostIds = Array.from(new Set(postIds.filter((postId) => Number.isInteger(postId) && postId > 0)));
 	if (!uniquePostIds.length) return new Map();
 
 	try {
 		const placeholders = uniquePostIds.map(() => "?").join(", ");
 		const rows = await db
-			.prepare(`SELECT post_id, cat_code, site FROM posts WHERE post_id IN (${placeholders})`)
+			.prepare(`SELECT post_id, cat_code, sub_cat_code, site FROM posts WHERE post_id IN (${placeholders})`)
 			.bind(...uniquePostIds)
 			.all<PostMetaRow>();
 
@@ -761,6 +816,7 @@ async function loadPostMetaMap(db: D1Database, postIds: number[]): Promise<Map<n
 				row.post_id,
 				{
 					cat_code: row.cat_code,
+					sub_cat_code: row.sub_cat_code,
 					site: row.site,
 				},
 			]),
@@ -1116,9 +1172,9 @@ async function applyGeminiBatchUpdate(
 	}
 
 	const existingPost = await db
-		.prepare("SELECT post_id FROM posts WHERE post_id = ? LIMIT 1")
+		.prepare("SELECT post_id, prepare_src FROM posts WHERE post_id = ? LIMIT 1")
 		.bind(postId)
-		.first<{ post_id: number }>();
+		.first<{ post_id: number; prepare_src: string | null }>();
 	if (!existingPost?.post_id) {
 		return { ok: false, status: 404, message: "post not found", postId };
 	}
@@ -1527,7 +1583,7 @@ async function applyGeminiBatchUpdate(
 			return { ok: false, status: 409, message: "failed to update post prepare status", postId };
 		}
 	} else if (hasPrepareData && prepareStatus === GEMINI_BATCH_PREPARE_STATUS_PREPARE_CONTENT_DONE) {
-		const prepareContent = normalizeJsonText(payload.prepare_data);
+		const prepareContent = mergePrepareContentWithSrcOrg(payload.prepare_data, existingPost.prepare_src);
 		const updatePostResult = await db
 			.prepare(
 				`UPDATE posts
@@ -1986,6 +2042,7 @@ export async function GET(request: Request) {
 			const pending = pendingRows.map((row) => ({
 				...row,
 				cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+				sub_cat_code: postMetaMap.get(row.post_id)?.sub_cat_code ?? null,
 				site: postMetaMap.get(row.post_id)?.site ?? null,
 			}));
 			return NextResponse.json({
@@ -2009,6 +2066,7 @@ export async function GET(request: Request) {
 			const pending = pendingRows.map((row) => ({
 				...row,
 				cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+				sub_cat_code: postMetaMap.get(row.post_id)?.sub_cat_code ?? null,
 				site: postMetaMap.get(row.post_id)?.site ?? null,
 			}));
 			return NextResponse.json({
@@ -2026,6 +2084,7 @@ export async function GET(request: Request) {
 			const posts = readyPosts.map((row) => ({
 				...row,
 				cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+				sub_cat_code: postMetaMap.get(row.post_id)?.sub_cat_code ?? null,
 				site: postMetaMap.get(row.post_id)?.site ?? null,
 			}));
 			return NextResponse.json({
@@ -2051,6 +2110,7 @@ export async function GET(request: Request) {
 				post: {
 					...loaded.post,
 					cat_code: postMetaMap.get(loaded.post.post_id)?.cat_code ?? null,
+					sub_cat_code: postMetaMap.get(loaded.post.post_id)?.sub_cat_code ?? null,
 					site: postMetaMap.get(loaded.post.post_id)?.site ?? null,
 				},
 				pages: loaded.pages,
@@ -2063,6 +2123,7 @@ export async function GET(request: Request) {
 		const posts = preparePosts.map((row) => ({
 			...row,
 			cat_code: postMetaMap.get(row.post_id)?.cat_code ?? null,
+			sub_cat_code: postMetaMap.get(row.post_id)?.sub_cat_code ?? null,
 			site: postMetaMap.get(row.post_id)?.site ?? null,
 		}));
 

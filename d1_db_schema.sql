@@ -317,6 +317,7 @@ CREATE TABLE IF NOT EXISTS posts (
   prepare_post_id INTEGER, -- FK to another post_id if this is a prepared post derived from another (e.g. for AI generation)
   prepare_src    TEXT, -- original text content of prepare_url
   cat_code    TEXT, -- category code for this post, e.g. car, tech, lifestyle (can be used for filtering and display)
+  sub_cat_code    TEXT,-- subcategory code for this post, e.g. car, tech, lifestyle (can be used for filtering and display)
   site    TEXT -- site of the data source, e.g. 328car, if null, it is a post of paragify.com, it share the table for generating prepared data
   -- FOREIGN KEY (user_pk) REFERENCES users(user_pk)
 );
@@ -452,12 +453,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_post_reports_unique_reporter_post ON post_
 CREATE TABLE IF NOT EXISTS post_hashtags (
   post_id INTEGER NOT NULL,
   tag     TEXT NOT NULL,            -- normalized lowercase without leading #
+  kind    INTEGER DEFAULT 0, -- 0=basic hashtag, 1=content tag
   PRIMARY KEY (post_id, tag)
   -- FOREIGN KEY (post_id) REFERENCES posts(post_id)
 );
 CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
 CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag_post ON post_hashtags(tag, post_id);
+CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag_post_kind ON post_hashtags(tag, post_id, kind);
 
+CREATE TABLE IF NOT EXISTS post_keywords (
+  post_id INTEGER NOT NULL,
+  tag     TEXT NOT NULL,            -- normalized lowercase without leading #
+  PRIMARY KEY (post_id, tag)
+  -- FOREIGN KEY (post_id) REFERENCES posts(post_id)
+);
+CREATE INDEX IF NOT EXISTS idx_post_keywords_tag ON post_keywords(tag);
+CREATE INDEX IF NOT EXISTS idx_post_keywords_tag_post ON post_keywords(tag, post_id);
 
 
 
