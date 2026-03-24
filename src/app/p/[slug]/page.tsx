@@ -29,11 +29,35 @@ type ArticleRow = {
 	title: string | null;
 	caption: string | null;
 	prepare_content: string | null;
+	like_count: number | null;
+	comment_count: number | null;
 	created_at: string | null;
 	updated_at: string | null;
 	author_name: string | null;
 	author_id: string | null;
 	author_avatar: string | null;
+};
+
+type RelatedPostRow = {
+	post_id: number;
+	post_slug: string | null;
+	locale: string | null;
+	title: string | null;
+	caption: string | null;
+	prepare_content: string | null;
+	author_name: string | null;
+	author_id: string | null;
+	first_media_url: string | null;
+};
+
+type RelatedPostView = {
+	postId: number;
+	href: string;
+	title: string;
+	summary: string | null;
+	authorName: string;
+	authorHandle: string | null;
+	heroImageUrl: string | null;
 };
 
 type PreparedParagraphType = "p" | "image" | "hashtags";
@@ -75,17 +99,35 @@ const copy: Record<
 		back: string;
 		published: string;
 		noContent: string;
+		articleMeta: string;
+		category: string;
+		subcategory: string;
+		tags: string;
+		relatedReading: string;
+		noRelatedReading: string;
 	}
 > = {
 	en: {
 		back: "Back home",
 		published: "Published",
 		noContent: "This post does not have prepared article content yet.",
+		articleMeta: "Article info",
+		category: "Category",
+		subcategory: "Subcategory",
+		tags: "Tags",
+		relatedReading: "Related posts",
+		noRelatedReading: "No related posts found.",
 	},
 	zh: {
 		back: "返回首頁",
 		published: "發佈於",
 		noContent: "這篇文章暫時未有整理好的內容。",
+		articleMeta: "文章資料",
+		category: "分類",
+		subcategory: "子分類",
+		tags: "標籤",
+		relatedReading: "相關文章",
+		noRelatedReading: "暫時未有相關文章。",
 	},
 };
 
@@ -126,6 +168,16 @@ function buildHashtagHref(hashtag: string, locale: Locale): string {
 		params.set("locale", locale);
 	}
 	params.set("hashtag", hashtag);
+	return `/?${params.toString()}`;
+}
+
+function buildAuthorPostsHref(authorHandle: string, locale: Locale): string {
+	const normalizedHandle = authorHandle.trim().replace(/^@+/, "").toLowerCase();
+	const params = new URLSearchParams();
+	if (locale !== DEFAULT_LOCALE) {
+		params.set("locale", locale);
+	}
+	params.set("author", normalizedHandle);
 	return `/?${params.toString()}`;
 }
 
@@ -401,6 +453,8 @@ async function loadArticle(db: D1Database, slug: string): Promise<ArticleRow | n
 					p.title,
 					p.caption,
 					p.prepare_content,
+					p.like_count,
+					p.comment_count,
 					p.created_at,
 					p.updated_at,
 					u.name AS author_name,
@@ -441,6 +495,114 @@ async function loadPostComments(db: D1Database, postId: number): Promise<PostCom
 			.bind(postId)
 			.all<PostComment>()).results ?? []
 	);
+}
+
+async function loadPrimaryCategoryId(db: D1Database, postId: number): Promise<number | null> {
+	const row = await db
+		.prepare(
+			`SELECT psc.posts_category_id
+			 FROM posts_subcategory_assignments psa
+			 JOIN posts_subcategories psc
+			   ON psc.posts_subcategory_id = psa.posts_subcategory_id
+			WHERE psa.post_id = ?
+			  AND psa.is_primary = 1
+			LIMIT 1`,
+		)
+		.bind(postId)
+		.first<{ posts_category_id: number }>();
+
+	return row?.posts_category_id ?? null;
+}
+
+function buildPublicPostHref(post: Pick<ArticleRow | RelatedPostRow, "post_slug" | "post_id">): string {
+	return `/p/${encodeURIComponent(getPostSlugRef(post))}`;
+}
+
+function buildRelatedFallbackTitle(locale: Locale, postId: number): string {
+	return locale === "en" ? `Post ${postId}` : `文章 ${postId}`;
+}
+
+function buildRelatedPostView(row: RelatedPostRow, locale: Locale): RelatedPostView {
+	const prepared = parsePrepareContent(row.prepare_content);
+	const fallbackTitle =
+		trimForMeta(stripHashtags(row.caption), locale === "en" ? 70 : 42) ?? buildRelatedFallbackTitle(locale, row.post_id);
+	const title = trimForMeta(prepared?.title ?? row.title?.trim() ?? fallbackTitle, locale === "en" ? 70 : 42) ?? fallbackTitle;
+	const summary = trimForMeta(prepared?.subtitle ?? prepared?.footerLine ?? stripHashtags(row.caption), 120);
+	const heroImageUrl =
+		prepared?.headingImages.find((image) => image.slot === 1)?.url ??
+		prepared?.coverPageUrl ??
+		(row.first_media_url ? toPrepareContentImageUrl(row.first_media_url) : null);
+
+	return {
+		postId: row.post_id,
+		href: buildPublicPostHref(row),
+		title,
+		summary,
+		authorName: row.author_name?.trim() || row.author_id?.trim() || `user${row.post_id}`,
+		authorHandle: row.author_id?.trim() || null,
+		heroImageUrl,
+	};
+}
+
+async function loadRelatedPosts(db: D1Database, postId: number, locale: Locale): Promise<RelatedPostView[]> {
+	const primaryCategoryId = await loadPrimaryCategoryId(db, postId);
+	if (!primaryCategoryId) {
+		return [];
+	}
+
+	const result = await db
+		.prepare(
+			`SELECT
+				p.post_id,
+				p.post_slug,
+				p.locale,
+				p.title,
+				p.caption,
+				p.prepare_content,
+				u.name AS author_name,
+				u.user_id AS author_id,
+				(
+					SELECT pp.media_url
+					FROM post_pages pp
+					WHERE pp.post_id = p.post_id
+					ORDER BY pp.page_num ASC
+					LIMIT 1
+				) AS first_media_url
+			FROM posts_subcategories psc
+			JOIN posts_subcategory_assignments psa
+				ON psa.posts_subcategory_id = psc.posts_subcategory_id
+				AND psa.is_primary = 1
+			JOIN posts p
+				ON p.post_id = psa.post_id
+				AND p.visibility = 'public'
+			JOIN users u
+				ON u.user_pk = p.user_pk
+			LEFT JOIN post_keywords pk
+				ON pk.post_id = p.post_id
+			LEFT JOIN post_keywords ck
+				ON ck.post_id = ?
+				AND ck.tag = pk.tag
+			WHERE psc.posts_category_id = ?
+				AND p.post_id <> ?
+			GROUP BY
+				p.post_id,
+				p.post_slug,
+				p.locale,
+				p.title,
+				p.caption,
+				p.prepare_content,
+				u.name,
+				u.user_id
+			ORDER BY
+				CASE WHEN COUNT(DISTINCT ck.tag) > 0 THEN 0 ELSE 1 END ASC,
+				COUNT(DISTINCT ck.tag) DESC,
+				p.post_id DESC
+			LIMIT 6`,
+		)
+		.bind(postId, primaryCategoryId, postId)
+		.all<RelatedPostRow>();
+
+	return (result.results ?? []).map((row) => buildRelatedPostView(row, locale));
 }
 
 function renderInlineHashtagLinks(value: string, locale: Locale) {
@@ -511,6 +673,56 @@ function buildSectionStyle(): CSSProperties {
 		backgroundColor: "color-mix(in srgb, var(--cell-1) 96%, transparent)",
 		borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)",
 	};
+}
+
+function getPrimarySeoImageUrl(prepared: PreparedContentView | null): string | null {
+	return (
+		prepared?.headingImages.find((image) => image.slot === 1)?.url ??
+		prepared?.coverPageUrl ??
+		prepared?.headingImages[0]?.url ??
+		prepared?.paragraphs.find((paragraph) => paragraph.type === "image" && paragraph.url)?.url ??
+		null
+	);
+}
+
+function estimateArticleWordCount(value: string): number | undefined {
+	const normalized = value.trim();
+	if (!normalized) {
+		return undefined;
+	}
+
+	const cjkCount = normalized.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu)?.length ?? 0;
+	const latinWordCount =
+		normalized
+			.replace(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu, " ")
+			.match(/[\p{L}\p{N}'’-]+/gu)?.length ?? 0;
+	const wordCount = cjkCount + latinWordCount;
+
+	return wordCount > 0 ? wordCount : undefined;
+}
+
+function buildSeoTopicNames(prepared: PreparedContentView | null): string[] {
+	const topicSource = new Set<string>();
+	const pushTopic = (value: string | null) => {
+		const normalized = value?.replace(/^#/, "").trim() ?? "";
+		if (normalized) {
+			topicSource.add(normalized);
+		}
+	};
+
+	pushTopic(prepared?.categoryLabel ?? null);
+	pushTopic(prepared?.subcategoryLabel ?? null);
+	for (const tag of prepared?.headingHashtags ?? []) {
+		pushTopic(tag);
+	}
+	for (const tag of prepared?.hashtagsLocale ?? []) {
+		pushTopic(tag);
+	}
+	for (const tag of prepared?.sourceHashtags ?? []) {
+		pushTopic(tag);
+	}
+
+	return Array.from(topicSource).slice(0, 8);
 }
 
 function renderHeadingImageSection(image: PreparedHeadingImage | null, title: string, locale: Locale) {
@@ -604,6 +816,7 @@ function buildArticleSeoSummary(
 		}
 	};
 
+	pushKeyword(article.author_id?.trim() ?? null);
 	pushKeyword(prepared?.categoryLabel ?? null);
 	pushKeyword(prepared?.subcategoryLabel ?? null);
 	for (const tag of prepared?.headingHashtags ?? []) {
@@ -622,11 +835,16 @@ function buildArticleSeoSummary(
 	}
 	pushKeyword(SITE_NAME);
 
+	const keywords = Array.from(keywordSource).filter((keyword) => keyword.length > 0);
+	if (!keywords.includes("paragify")) {
+		keywords.unshift("paragify");
+	}
+
 	return {
 		title,
 		description,
 		articleBody,
-		keywords: Array.from(keywordSource).slice(0, 16),
+		keywords: keywords.slice(0, 16),
 		section: prepared?.subcategoryLabel ?? prepared?.categoryLabel ?? undefined,
 	};
 }
@@ -660,17 +878,22 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 	const prepared = parsePrepareContent(article.prepare_content);
 	const seoSummary = buildArticleSeoSummary(article, prepared, locale);
 	const authorName = article.author_name?.trim() || article.author_id?.trim() || `user${article.post_id}`;
-	const imageUrl = prepared?.headingImages[0]?.url ?? prepared?.coverPageUrl ?? null;
+	const authorHandle = article.author_id?.trim() || null;
+	const authorArchiveUrl = authorHandle ? toAbsoluteUrl(buildAuthorPostsHref(authorHandle, locale)) : null;
+	const imageUrl = getPrimarySeoImageUrl(prepared);
 	const canonicalUrl = toAbsoluteUrl(`/p/${encodeURIComponent(getPostSlugRef(article))}`);
+	const title = `${seoSummary.title} | ${SITE_NAME}`;
 
 	return {
-		title: `${seoSummary.title} | ${SITE_NAME}`,
+		title,
 		description: seoSummary.description,
 		keywords: seoSummary.keywords,
-		authors: [{ name: authorName }],
+		authors: [{ name: authorName, url: authorArchiveUrl ?? undefined }],
 		creator: authorName,
 		publisher: SITE_NAME,
 		category: prepared?.categoryLabel ?? undefined,
+		classification: seoSummary.section,
+		referrer: "origin-when-cross-origin",
 		alternates: {
 			canonical: canonicalUrl,
 		},
@@ -688,7 +911,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 		openGraph: {
 			type: "article",
 			url: canonicalUrl,
-			title: `${seoSummary.title} | ${SITE_NAME}`,
+			title,
 			description: seoSummary.description,
 			siteName: SITE_NAME,
 			locale: locale === "en" ? "en_US" : "zh_HK",
@@ -708,8 +931,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 		},
 		twitter: {
 			card: imageUrl ? "summary_large_image" : "summary",
-			title: `${seoSummary.title} | ${SITE_NAME}`,
+			title,
 			description: seoSummary.description,
+			creator: authorHandle ? `@${authorHandle}` : undefined,
 			images: imageUrl ? [imageUrl] : undefined,
 		},
 	};
@@ -733,15 +957,21 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 	const prepared = parsePrepareContent(article.prepare_content);
 	const authorName = article.author_name?.trim() || article.author_id?.trim() || `user${article.post_id}`;
 	const authorHandle = article.author_id?.trim() || null;
+	const authorPostsHref = authorHandle ? buildAuthorPostsHref(authorHandle, locale) : null;
 	const title = prepared?.title ?? article.title?.trim() ?? `Post ${article.post_id}`;
 	const heroImage = prepared?.headingImages.find((image) => image.slot === 1) ?? null;
 	const heroImageUrl = heroImage?.url ?? prepared?.coverPageUrl ?? null;
 	const secondaryHeadingImage = prepared?.headingImages.find((image) => image.slot === 2) ?? null;
 	const fallbackCaption = stripHashtags(article.caption);
 	const comments = await loadPostComments(db, article.post_id);
+	const relatedPosts = await loadRelatedPosts(db, article.post_id, locale);
 	const canonicalUrl = toAbsoluteUrl(`/p/${encodeURIComponent(getPostSlugRef(article))}`);
 	const seoSummary = buildArticleSeoSummary(article, prepared, locale);
-	const primaryImageUrl = heroImageUrl;
+	const primaryImageUrl = getPrimarySeoImageUrl(prepared);
+	const seoTopics = buildSeoTopicNames(prepared);
+	const articleWordCount = seoSummary.articleBody ? estimateArticleWordCount(seoSummary.articleBody) : undefined;
+	const authorArchiveUrl = authorPostsHref ? toAbsoluteUrl(authorPostsHref) : undefined;
+	const sourceHashtags = Array.from(new Set(prepared?.sourceHashtags ?? [])).slice(0, 10);
 	const breadcrumbJsonLd = {
 		"@context": "https://schema.org",
 		"@type": "BreadcrumbList",
@@ -762,19 +992,35 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 	};
 	const articleJsonLd = {
 		"@context": "https://schema.org",
-		"@type": "Article",
-		mainEntityOfPage: canonicalUrl,
+		"@type": "BlogPosting",
+		"@id": canonicalUrl,
+		mainEntityOfPage: {
+			"@type": "WebPage",
+			"@id": canonicalUrl,
+		},
+		isPartOf: {
+			"@type": "WebSite",
+			"@id": `${SITE_URL}/#website`,
+			name: SITE_NAME,
+			url: SITE_URL,
+		},
 		headline: seoSummary.title,
+		alternativeHeadline: prepared?.subtitle ?? undefined,
 		description: seoSummary.description,
 		articleBody: seoSummary.articleBody || undefined,
 		url: canonicalUrl,
 		inLanguage: locale === "en" ? "en" : "zh-HK",
 		datePublished: article.created_at || undefined,
 		dateModified: article.updated_at || article.created_at || undefined,
+		wordCount: articleWordCount,
+		commentCount: article.comment_count ?? 0,
+		isAccessibleForFree: true,
+		genre: seoSummary.section ? [seoSummary.section] : undefined,
 		author: {
 			"@type": "Person",
 			name: authorName,
 			identifier: authorHandle ? `@${authorHandle}` : undefined,
+			url: authorArchiveUrl,
 		},
 		publisher: {
 			"@type": "Organization",
@@ -787,14 +1033,51 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 		},
 		image: primaryImageUrl ? [primaryImageUrl] : undefined,
 		articleSection: seoSummary.section,
+		about:
+			seoTopics.length > 0
+				? seoTopics.map((topic) => ({
+						"@type": "Thing",
+						name: topic,
+				  }))
+				: undefined,
 		keywords: seoSummary.keywords.join(", "),
+		interactionStatistic: [
+			{
+				"@type": "InteractionCounter",
+				interactionType: "https://schema.org/LikeAction",
+				userInteractionCount: article.like_count ?? 0,
+			},
+			{
+				"@type": "InteractionCounter",
+				interactionType: "https://schema.org/CommentAction",
+				userInteractionCount: article.comment_count ?? 0,
+			},
+		],
 	};
+	const relatedItemListJsonLd =
+		relatedPosts.length > 0
+			? {
+					"@context": "https://schema.org",
+					"@type": "ItemList",
+					"@id": `${canonicalUrl}#related`,
+					name: copy[locale].relatedReading,
+					itemListElement: relatedPosts.map((post, index) => ({
+						"@type": "ListItem",
+						position: index + 1,
+						url: toAbsoluteUrl(post.href),
+						name: post.title,
+					})),
+			  }
+			: null;
 
 	return (
 		<main className="min-h-screen pb-20" style={{ backgroundImage: "var(--page-bg-gradient)" }}>
 			<div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }} />
 				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(articleJsonLd) }} />
+				{relatedItemListJsonLd ? (
+					<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(relatedItemListJsonLd) }} />
+				) : null}
 				<div className="mb-6">
 					<Link
 						href="/"
@@ -821,28 +1104,53 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 						>
 							<header className="border-b px-4 py-4 sm:px-8 sm:py-5" style={{ borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)" }}>
 								<div className="flex flex-wrap items-center justify-between gap-4">
-									<div className="flex items-center gap-3">
-										{article.author_avatar ? (
-											// eslint-disable-next-line @next/next/no-img-element
-											<img
-												src={article.author_avatar}
-												alt={`${authorName} avatar`}
-												className="h-11 w-11 rounded-full object-cover"
-												referrerPolicy="no-referrer"
-											/>
-										) : (
-											<div className="grid h-11 w-11 place-items-center rounded-full border text-sm font-semibold text-[color:var(--txt-1)]">
-												{authorName.slice(0, 2).toUpperCase()}
+									{authorPostsHref ? (
+										<Link href={authorPostsHref} className="flex items-center gap-3 rounded-full transition-opacity hover:opacity-85">
+											{article.author_avatar ? (
+												// eslint-disable-next-line @next/next/no-img-element
+												<img
+													src={article.author_avatar}
+													alt={`${authorName} avatar`}
+													className="h-11 w-11 rounded-full object-cover"
+													referrerPolicy="no-referrer"
+												/>
+											) : (
+												<div className="grid h-11 w-11 place-items-center rounded-full border text-sm font-semibold text-[color:var(--txt-1)]">
+													{authorName.slice(0, 2).toUpperCase()}
+												</div>
+											)}
+											<div>
+												<p className="text-sm font-semibold text-[color:var(--txt-1)]">{authorName}</p>
+												<p className="mt-1 text-sm text-[color:var(--txt-3)]">
+													{authorHandle ? `@${authorHandle} · ` : ""}
+													{t.published} {formatPublishDate(article.created_at, locale)}
+												</p>
 											</div>
-										)}
-										<div>
-											<p className="text-sm font-semibold text-[color:var(--txt-1)]">{authorName}</p>
-											<p className="mt-1 text-sm text-[color:var(--txt-3)]">
-												{authorHandle ? `@${authorHandle} · ` : ""}
-												{t.published} {formatPublishDate(article.created_at, locale)}
-											</p>
+										</Link>
+									) : (
+										<div className="flex items-center gap-3">
+											{article.author_avatar ? (
+												// eslint-disable-next-line @next/next/no-img-element
+												<img
+													src={article.author_avatar}
+													alt={`${authorName} avatar`}
+													className="h-11 w-11 rounded-full object-cover"
+													referrerPolicy="no-referrer"
+												/>
+											) : (
+												<div className="grid h-11 w-11 place-items-center rounded-full border text-sm font-semibold text-[color:var(--txt-1)]">
+													{authorName.slice(0, 2).toUpperCase()}
+												</div>
+											)}
+											<div>
+												<p className="text-sm font-semibold text-[color:var(--txt-1)]">{authorName}</p>
+												<p className="mt-1 text-sm text-[color:var(--txt-3)]">
+													{authorHandle ? `@${authorHandle} · ` : ""}
+													{t.published} {formatPublishDate(article.created_at, locale)}
+												</p>
+											</div>
 										</div>
-									</div>
+									)}
 									<span
 										className="rounded-full border px-3 py-1 text-xs font-medium text-[color:var(--txt-3)]"
 										style={{ borderColor: "var(--surface-border)" }}
@@ -1045,36 +1353,92 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 								boxShadow: "var(--shadow-elev-1)",
 							}}
 						>
-							<p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--txt-3)]">Related posts</p>
-							<h2 className="mt-2 text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">Placeholder</h2>
-							<p className="mt-3 text-sm leading-7 text-[color:var(--txt-2)]">
-								Reserved for related posts based on category, hashtags, or nearby topics.
+							<p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--txt-3)]">
+								{copy[locale].articleMeta}
 							</p>
-							<div className="mt-5 space-y-3">
-								{Array.from({ length: 3 }, (_, index) => (
-									<div
-										key={`related-placeholder-${index}`}
-										className="rounded-[1.35rem] border p-3"
-										style={{
-											backgroundColor: "color-mix(in srgb, var(--cell-2) 92%, transparent)",
-											borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)",
-										}}
-									>
-										<div
-											className="rounded-[1rem] border"
-											style={{
-												height: "120px",
-												background:
-													"linear-gradient(135deg, color-mix(in srgb, var(--cell-3) 82%, transparent), color-mix(in srgb, var(--cell-2) 96%, transparent))",
-												borderColor: "color-mix(in srgb, var(--surface-border) 78%, transparent)",
-											}}
-										/>
-										<p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">
-											Related post
-										</p>
-										<p className="mt-2 text-sm font-semibold text-[color:var(--txt-1)]">Placeholder slot {index + 1}</p>
+							<div className="mt-4 space-y-4 text-sm text-[color:var(--txt-2)]">
+								<div>
+									<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{t.published}</p>
+									<p className="mt-2 text-base font-semibold text-[color:var(--txt-1)]">{formatPublishDate(article.created_at, locale)}</p>
+								</div>
+								{prepared?.categoryLabel ? (
+									<div>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[locale].category}</p>
+										<p className="mt-2 text-base font-semibold text-[color:var(--txt-1)]">{prepared.categoryLabel}</p>
 									</div>
-								))}
+								) : null}
+								{prepared?.subcategoryLabel ? (
+									<div>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[locale].subcategory}</p>
+										<p className="mt-2 text-base font-semibold text-[color:var(--txt-1)]">{prepared.subcategoryLabel}</p>
+									</div>
+								) : null}
+								{sourceHashtags.length > 0 ? (
+									<div>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[locale].tags}</p>
+										<div className="mt-3 flex flex-wrap gap-2">
+											{sourceHashtags.map((tag) => (
+												<Link
+													key={`aside-#${tag}`}
+													href={buildHashtagHref(`#${tag}`, locale)}
+													className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
+													style={buildTagStyle()}
+												>
+													#{tag}
+												</Link>
+											))}
+										</div>
+									</div>
+								) : null}
+							</div>
+
+							<div
+								className="border-t pt-5"
+								style={{ borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)" }}
+							>
+								<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">
+									{copy[locale].relatedReading}
+								</p>
+								{relatedPosts.length > 0 ? (
+									<div className="mt-4 space-y-3">
+										{relatedPosts.map((relatedPost) => (
+											<Link
+												key={relatedPost.postId}
+												href={relatedPost.href}
+												className="block rounded-[1.35rem] border p-3 transition-transform hover:-translate-y-0.5"
+												style={{
+													backgroundColor: "color-mix(in srgb, var(--cell-2) 92%, transparent)",
+													borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)",
+												}}
+											>
+												{relatedPost.heroImageUrl ? (
+													<div
+														className="relative overflow-hidden rounded-[1rem] border"
+														style={{
+															aspectRatio: "4 / 3",
+															borderColor: "color-mix(in srgb, var(--surface-border) 78%, transparent)",
+														}}
+													>
+														{/* eslint-disable-next-line @next/next/no-img-element */}
+														<img src={relatedPost.heroImageUrl} alt={relatedPost.title} className="h-full w-full object-cover" loading="lazy" />
+													</div>
+												) : null}
+												<p className={`${relatedPost.heroImageUrl ? "mt-3 " : ""}text-sm font-semibold leading-6 text-[color:var(--txt-1)]`}>
+													{relatedPost.title}
+												</p>
+												{relatedPost.summary ? (
+													<p className="mt-2 text-sm leading-6 text-[color:var(--txt-2)]">{relatedPost.summary}</p>
+												) : null}
+												<p className="mt-3 text-xs text-[color:var(--txt-3)]">
+													<span className="font-medium text-[color:var(--txt-1)]">{relatedPost.authorName}</span>
+													{relatedPost.authorHandle ? ` · @${relatedPost.authorHandle}` : ""}
+												</p>
+											</Link>
+										))}
+									</div>
+								) : (
+									<p className="mt-3 text-sm leading-7 text-[color:var(--txt-2)]">{copy[locale].noRelatedReading}</p>
+								)}
 							</div>
 						</section>
 					</aside>

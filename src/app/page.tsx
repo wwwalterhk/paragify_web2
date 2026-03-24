@@ -5,13 +5,11 @@ import { SiteFooter } from "./components/site-footer";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-	title: "Paragify | Home",
-	description: "Browse Paragify categories, public posts, and curated taxonomy-driven discovery.",
-};
-
 const PAGE_SIZE = 10;
 const DEFAULT_LOCALE = "en";
+const SITE_NAME = "Paragify";
+const DEFAULT_SITE_URL = "http://localhost:3000";
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).replace(/\/+$/, "");
 const PRIMARY_CDN_ORIGIN = "https://cdn.paragify.com";
 const PUBLIC_POSTS_WHERE = "p.visibility = 'public'";
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
@@ -139,6 +137,53 @@ type HomePageData = {
 	taxonomy: TaxonomyCategory[];
 };
 
+type HomeSeoContext = {
+	title: string;
+	description: string;
+	keywords: string[];
+	canonicalPath: string;
+	indexable: boolean;
+};
+
+function toAbsoluteUrl(path: string): string {
+	if (path.startsWith("http://") || path.startsWith("https://")) {
+		return path;
+	}
+
+	const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+	return `${SITE_URL}${normalizedPath}`;
+}
+
+function serializeJsonLd(value: unknown): string {
+	return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function toSeoLabel(value: string | null): string | null {
+	if (!value) {
+		return null;
+	}
+
+	const acronymMap = new Map([
+		["ai", "AI"],
+		["ev", "EV"],
+		["pc", "PC"],
+		["tv", "TV"],
+		["vr", "VR"],
+		["ar", "AR"],
+		["ux", "UX"],
+		["ui", "UI"],
+	]);
+
+	const parts = value
+		.trim()
+		.toLowerCase()
+		.split(/[-_]+/)
+		.filter(Boolean)
+		.map((part) => acronymMap.get(part) ?? `${part.charAt(0).toUpperCase()}${part.slice(1)}`);
+
+	return parts.length > 0 ? parts.join(" ") : null;
+}
+
 function readStringParam(value: string | string[] | undefined): string | null {
 	const raw = Array.isArray(value) ? value[0] : value;
 	if (typeof raw !== "string") {
@@ -183,6 +228,11 @@ function readSearchQueryParam(value: string | string[] | undefined): string | nu
 	return readStringParam(value);
 }
 
+function readAuthorParam(value: string | string[] | undefined): string | null {
+	const raw = readStringParam(value);
+	return raw ? raw.toLowerCase() : null;
+}
+
 function toPostLocale(value: string | null): Locale {
 	return value?.trim().toLowerCase() === "zh" ? "zh" : DEFAULT_LOCALE;
 }
@@ -194,6 +244,7 @@ function buildPageHref(
 	subcategoryCode: string | null = null,
 	hashtag: string | null = null,
 	searchQuery: string | null = null,
+	authorHandle: string | null = null,
 ): string {
 	const params = new URLSearchParams();
 	if (page > 1) {
@@ -214,6 +265,9 @@ function buildPageHref(
 	if (searchQuery) {
 		params.set("q", searchQuery);
 	}
+	if (authorHandle) {
+		params.set("author", authorHandle);
+	}
 	const query = params.toString();
 	return query ? `/?${query}` : "/";
 }
@@ -223,8 +277,9 @@ function buildCategoryHref(
 	locale: Locale,
 	hashtag: string | null = null,
 	searchQuery: string | null = null,
+	authorHandle: string | null = null,
 ): string {
-	return buildPageHref(1, locale, categoryCode, null, hashtag, searchQuery);
+	return buildPageHref(1, locale, categoryCode, null, hashtag, searchQuery, authorHandle);
 }
 
 function buildSubcategoryHref(
@@ -233,8 +288,223 @@ function buildSubcategoryHref(
 	locale: Locale,
 	hashtag: string | null = null,
 	searchQuery: string | null = null,
+	authorHandle: string | null = null,
 ): string {
-	return buildPageHref(1, locale, categoryCode, subcategoryCode, hashtag, searchQuery);
+	return buildPageHref(1, locale, categoryCode, subcategoryCode, hashtag, searchQuery, authorHandle);
+}
+
+function getHomeSeoContext({
+	locale,
+	page,
+	categoryCode,
+	subcategoryCode,
+	hashtag,
+	searchQuery,
+	authorHandle,
+}: {
+	locale: Locale;
+	page: number;
+	categoryCode: string | null;
+	subcategoryCode: string | null;
+	hashtag: string | null;
+	searchQuery: string | null;
+	authorHandle: string | null;
+}): HomeSeoContext {
+	const categoryLabel = toSeoLabel(categoryCode);
+	const subcategoryLabel = toSeoLabel(subcategoryCode);
+	const hashtagLabel = hashtag?.trim() || null;
+	const searchQueryLabel = searchQuery?.trim() || null;
+	const normalizedAuthorHandle = authorHandle?.trim().replace(/^@+/, "") || null;
+	const authorLabel = normalizedAuthorHandle ? `@${normalizedAuthorHandle}` : null;
+	const authorKeyword = normalizedAuthorHandle ? normalizedAuthorHandle.toLowerCase() : null;
+	const scopeLabel =
+		subcategoryLabel && categoryLabel
+			? `${subcategoryLabel} in ${categoryLabel}`
+			: subcategoryLabel ?? categoryLabel;
+	const pageSuffix = page > 1 ? ` - Page ${page}` : "";
+	const canonicalPath = buildPageHref(page, locale, categoryCode, subcategoryCode, hashtag, searchQuery, normalizedAuthorHandle);
+
+	if (searchQueryLabel) {
+		return {
+			title: `${authorLabel ? `Search "${searchQueryLabel}" by ${authorLabel}` : `Search "${searchQueryLabel}"`} | ${SITE_NAME}${pageSuffix}`,
+			description: authorLabel
+				? `Search ${SITE_NAME} public posts by ${authorLabel} for ${searchQueryLabel}.`
+				: `Search ${SITE_NAME} public posts and topic pages for ${searchQueryLabel}.`,
+			keywords: [
+				SITE_NAME.toLowerCase(),
+				searchQueryLabel.toLowerCase(),
+				...(normalizedAuthorHandle ? [normalizedAuthorHandle.toLowerCase()] : []),
+				"search",
+				"public posts",
+				"topic index",
+			],
+			canonicalPath,
+			indexable: false,
+		};
+	}
+
+	if (authorLabel && authorKeyword && hashtagLabel && scopeLabel) {
+		return {
+			title: `${hashtagLabel} ${scopeLabel} posts by ${authorLabel} | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public ${scopeLabel} posts published by ${authorLabel} and tagged ${hashtagLabel} on ${SITE_NAME}.`,
+			keywords: [
+				SITE_NAME.toLowerCase(),
+				authorKeyword,
+				hashtagLabel.replace(/^#/, "").toLowerCase(),
+				scopeLabel.toLowerCase(),
+				"public posts",
+			],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	if (authorLabel && authorKeyword && hashtagLabel) {
+		return {
+			title: `Posts by ${authorLabel} tagged ${hashtagLabel} | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public posts published by ${authorLabel} and tagged ${hashtagLabel} on ${SITE_NAME}.`,
+			keywords: [
+				SITE_NAME.toLowerCase(),
+				authorKeyword,
+				hashtagLabel.replace(/^#/, "").toLowerCase(),
+				"public posts",
+			],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	if (authorLabel && authorKeyword && scopeLabel) {
+		return {
+			title: `${scopeLabel} posts by ${authorLabel} | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public ${scopeLabel} posts published by ${authorLabel} on ${SITE_NAME}.`,
+			keywords: [SITE_NAME.toLowerCase(), authorKeyword, scopeLabel.toLowerCase(), "public posts"],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	if (authorLabel && authorKeyword) {
+		return {
+			title: `Posts by ${authorLabel} | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public posts published by ${authorLabel} on ${SITE_NAME}.`,
+			keywords: [SITE_NAME.toLowerCase(), authorKeyword, "author posts", "public posts"],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	if (hashtagLabel && scopeLabel) {
+		return {
+			title: `${hashtagLabel} ${scopeLabel} posts | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public posts tagged ${hashtagLabel} in ${scopeLabel} on ${SITE_NAME}.`,
+			keywords: [SITE_NAME.toLowerCase(), hashtagLabel.replace(/^#/, "").toLowerCase(), scopeLabel.toLowerCase(), "public posts"],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	if (hashtagLabel) {
+		return {
+			title: `${hashtagLabel} posts | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public posts tagged ${hashtagLabel} on ${SITE_NAME}.`,
+			keywords: [SITE_NAME.toLowerCase(), hashtagLabel.replace(/^#/, "").toLowerCase(), "hashtag", "public posts"],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	if (subcategoryLabel && categoryLabel) {
+		return {
+			title: `${subcategoryLabel} posts in ${categoryLabel} | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public ${subcategoryLabel} posts within ${categoryLabel} on ${SITE_NAME}.`,
+			keywords: [SITE_NAME.toLowerCase(), subcategoryLabel.toLowerCase(), categoryLabel.toLowerCase(), "public posts"],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	if (categoryLabel) {
+		return {
+			title: `${categoryLabel} posts and subcategories | ${SITE_NAME}${pageSuffix}`,
+			description: `Browse public ${categoryLabel} posts, active subcategories, and related topics on ${SITE_NAME}.`,
+			keywords: [SITE_NAME.toLowerCase(), categoryLabel.toLowerCase(), "public posts", "subcategories", "topic index"],
+			canonicalPath,
+			indexable: true,
+		};
+	}
+
+	return {
+		title: `${SITE_NAME} | Topic Index and Public Posts${pageSuffix}`,
+		description:
+			"Browse Paragify topics, active categories, and the latest public posts across tech, watches, food, gaming, lifestyle, and more.",
+		keywords: [
+			SITE_NAME.toLowerCase(),
+			"topic index",
+			"public posts",
+			"tech",
+			"watches",
+			"food",
+			"gaming",
+			"lifestyle",
+		],
+		canonicalPath,
+		indexable: true,
+	};
+}
+
+export async function generateMetadata({ searchParams }: HomePageProps): Promise<Metadata> {
+	const resolvedSearchParams = (await searchParams) || {};
+	const locale = readLocaleParam(resolvedSearchParams.locale);
+	const categoryCode = readCategoryParam(resolvedSearchParams.category);
+	const subcategoryCode = readSubcategoryParam(resolvedSearchParams.subcategory);
+	const hashtag = readHashtagParam(resolvedSearchParams.hashtag);
+	const searchQuery = readSearchQueryParam(resolvedSearchParams.q);
+	const authorHandle = readAuthorParam(resolvedSearchParams.author);
+	const page = readPageParam(resolvedSearchParams.page);
+	const seoContext = getHomeSeoContext({
+		locale,
+		page,
+		categoryCode,
+		subcategoryCode,
+		hashtag,
+		searchQuery,
+		authorHandle,
+	});
+	const canonicalUrl = toAbsoluteUrl(seoContext.canonicalPath);
+
+	return {
+		title: seoContext.title,
+		description: seoContext.description,
+		keywords: seoContext.keywords,
+		alternates: {
+			canonical: canonicalUrl,
+		},
+		openGraph: {
+			type: "website",
+			url: canonicalUrl,
+			title: seoContext.title,
+			description: seoContext.description,
+			siteName: SITE_NAME,
+			locale: locale === "zh" ? "zh_HK" : "en_US",
+		},
+		twitter: {
+			card: "summary",
+			title: seoContext.title,
+			description: seoContext.description,
+		},
+		robots: {
+			index: seoContext.indexable,
+			follow: true,
+			googleBot: {
+				index: seoContext.indexable,
+				follow: true,
+				"max-image-preview": "large",
+				"max-snippet": -1,
+				"max-video-preview": -1,
+			},
+		},
+	};
 }
 
 function formatDate(value: string | null): string {
@@ -594,6 +864,7 @@ async function loadHomePageData(
 	subcategoryCode: string | null,
 	hashtag: string | null,
 	searchQuery: string | null,
+	authorHandle: string | null,
 ): Promise<HomePageData> {
 	try {
 		const { env } = await getCloudflareContext({ async: true });
@@ -649,15 +920,29 @@ async function loadHomePageData(
 			)`
 			: "";
 		const searchFilterBindings = searchQuery ? [searchQuery, searchQuery, searchQuery] : [];
+		const authorFilterClause = authorHandle
+			? ` AND EXISTS (
+				SELECT 1
+				FROM users u_filter
+				WHERE u_filter.user_pk = p.user_pk
+					AND lower(COALESCE(u_filter.user_id, '')) = ?
+			)`
+			: "";
+		const authorFilterBindings = authorHandle ? [authorHandle] : [];
 		const filterBindings = [
 			...categoryFilterBindings,
 			...subcategoryFilterBindings,
 			...hashtagFilterBindings,
 			...searchFilterBindings,
+			...authorFilterBindings,
 		];
 
 		const totalRow = await db
-			.prepare(`SELECT COUNT(1) AS total FROM posts p WHERE ${PUBLIC_POSTS_WHERE}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}`)
+			.prepare(
+				`SELECT COUNT(1) AS total
+				FROM posts p
+				WHERE ${PUBLIC_POSTS_WHERE}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}${authorFilterClause}`,
+			)
 			.bind(...filterBindings)
 			.first<{ total: number }>();
 		const totalPosts = totalRow?.total ?? 0;
@@ -681,7 +966,7 @@ async function loadHomePageData(
 				FROM posts p
 				LEFT JOIN users u
 					ON u.user_pk = p.user_pk
-				WHERE ${PUBLIC_POSTS_WHERE}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}
+				WHERE ${PUBLIC_POSTS_WHERE}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}${authorFilterClause}
 				ORDER BY p.post_id DESC
 				LIMIT ? OFFSET ?`,
 			)
@@ -807,6 +1092,7 @@ function SearchPanel({
 	selectedSubcategory,
 	selectedHashtag,
 	selectedSearchQuery,
+	selectedAuthor,
 	totalPosts,
 }: {
 	locale: Locale;
@@ -814,6 +1100,7 @@ function SearchPanel({
 	selectedSubcategory: string | null;
 	selectedHashtag: string | null;
 	selectedSearchQuery: string | null;
+	selectedAuthor: string | null;
 	totalPosts: number;
 }) {
 	return (
@@ -837,6 +1124,7 @@ function SearchPanel({
 				{selectedCategory ? <input type="hidden" name="category" value={selectedCategory} /> : null}
 				{selectedSubcategory ? <input type="hidden" name="subcategory" value={selectedSubcategory} /> : null}
 				{selectedHashtag ? <input type="hidden" name="hashtag" value={selectedHashtag} /> : null}
+				{selectedAuthor ? <input type="hidden" name="author" value={selectedAuthor} /> : null}
 				<div>
 					<label htmlFor="homepage-search" className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">
 						Search query
@@ -868,7 +1156,7 @@ function SearchPanel({
 						Search
 					</button>
 					<Link
-						href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag)}
+						href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag, null, selectedAuthor)}
 						className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 						style={{
 							borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
@@ -891,6 +1179,7 @@ function Pagination({
 	selectedSubcategory,
 	selectedHashtag,
 	selectedSearchQuery,
+	selectedAuthor,
 }: {
 	page: number;
 	totalPages: number;
@@ -899,6 +1188,7 @@ function Pagination({
 	selectedSubcategory: string | null;
 	selectedHashtag: string | null;
 	selectedSearchQuery: string | null;
+	selectedAuthor: string | null;
 }) {
 	const previousHref = buildPageHref(
 		Math.max(1, page - 1),
@@ -907,8 +1197,9 @@ function Pagination({
 		selectedSubcategory,
 		selectedHashtag,
 		selectedSearchQuery,
+		selectedAuthor,
 	);
-	const nextHref = buildPageHref(page + 1, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery);
+	const nextHref = buildPageHref(page + 1, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, selectedAuthor);
 	const hasPrevious = page > 1;
 	const hasNext = totalPages > 0 && page < totalPages;
 	const pageItems: Array<{ type: "page"; value: number } | { type: "ellipsis"; key: string }> = [];
@@ -995,7 +1286,15 @@ function Pagination({
 								) : (
 									<Link
 										key={`page-${item.value}`}
-										href={buildPageHref(item.value, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery)}
+										href={buildPageHref(
+											item.value,
+											locale,
+											selectedCategory,
+											selectedSubcategory,
+											selectedHashtag,
+											selectedSearchQuery,
+											selectedAuthor,
+										)}
 										className="rounded-full border px-3 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 										style={{ borderColor: "var(--surface-border)", color: "var(--txt-1)" }}
 									>
@@ -1022,7 +1321,17 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 	const selectedSubcategory = readSubcategoryParam(resolvedSearchParams.subcategory);
 	const selectedHashtag = readHashtagParam(resolvedSearchParams.hashtag);
 	const selectedSearchQuery = readSearchQueryParam(resolvedSearchParams.q);
+	const selectedAuthor = readAuthorParam(resolvedSearchParams.author);
 	const requestedPage = readPageParam(resolvedSearchParams.page);
+	const seoContext = getHomeSeoContext({
+		locale,
+		page: requestedPage,
+		categoryCode: selectedCategory,
+		subcategoryCode: selectedSubcategory,
+		hashtag: selectedHashtag,
+		searchQuery: selectedSearchQuery,
+		authorHandle: selectedAuthor,
+	});
 	const { error, page, totalPages, totalPosts, posts, taxonomy } = await loadHomePageData(
 		requestedPage,
 		locale,
@@ -1030,13 +1339,154 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		selectedSubcategory,
 		selectedHashtag,
 		selectedSearchQuery,
+		selectedAuthor,
 	);
 	const subcategoryCount = taxonomy.reduce((count, category) => count + category.subcategories.length, 0);
 	const selectedTaxonomyCategory = selectedCategory ? taxonomy.find((category) => category.code === selectedCategory) ?? null : null;
+	const selectedTaxonomySubcategory =
+		selectedTaxonomyCategory?.subcategories.find((subcategory) => subcategory.code === selectedSubcategory) ?? null;
+	const canonicalUrl = toAbsoluteUrl(buildPageHref(page, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, selectedAuthor));
+	const collectionDescription =
+		selectedTaxonomySubcategory?.description ??
+		selectedTaxonomyCategory?.description ??
+		seoContext.description;
+	const websiteJsonLd = {
+		"@context": "https://schema.org",
+		"@type": "WebSite",
+		"@id": `${SITE_URL}/#website`,
+		name: SITE_NAME,
+		url: SITE_URL,
+		potentialAction: {
+			"@type": "SearchAction",
+			target: `${SITE_URL}/?q={search_term_string}`,
+			"query-input": "required name=search_term_string",
+		},
+	};
+	const collectionPageJsonLd = {
+		"@context": "https://schema.org",
+		"@type": "CollectionPage",
+		"@id": canonicalUrl,
+		url: canonicalUrl,
+		name: seoContext.title,
+		description: collectionDescription,
+		inLanguage: locale === "zh" ? "zh-HK" : "en",
+		isPartOf: {
+			"@type": "WebSite",
+			"@id": `${SITE_URL}/#website`,
+			name: SITE_NAME,
+			url: SITE_URL,
+		},
+	};
+	const breadcrumbItems = [
+		{
+			"@type": "ListItem",
+			position: 1,
+			name: SITE_NAME,
+			item: toAbsoluteUrl("/"),
+		},
+		selectedTaxonomyCategory
+			? {
+					"@type": "ListItem",
+					position: 2,
+					name: selectedTaxonomyCategory.name,
+					item: toAbsoluteUrl(
+						buildPageHref(1, locale, selectedTaxonomyCategory.code, null, selectedHashtag, selectedSearchQuery, selectedAuthor),
+					),
+			  }
+			: null,
+		selectedTaxonomySubcategory
+			? {
+					"@type": "ListItem",
+					position: selectedTaxonomyCategory ? 3 : 2,
+					name: selectedTaxonomySubcategory.name,
+					item: toAbsoluteUrl(
+						buildPageHref(
+							1,
+							locale,
+							selectedTaxonomyCategory?.code ?? null,
+							selectedTaxonomySubcategory.code,
+							selectedHashtag,
+							selectedSearchQuery,
+							selectedAuthor,
+						),
+					),
+			  }
+			: null,
+		selectedAuthor
+			? {
+					"@type": "ListItem",
+					position: selectedTaxonomySubcategory ? 4 : selectedTaxonomyCategory ? 3 : 2,
+					name: `@${selectedAuthor}`,
+					item: canonicalUrl,
+			  }
+			: null,
+		selectedHashtag
+			? {
+					"@type": "ListItem",
+					position: selectedAuthor ? (selectedTaxonomySubcategory ? 5 : selectedTaxonomyCategory ? 4 : 3) : selectedTaxonomySubcategory ? 4 : selectedTaxonomyCategory ? 3 : 2,
+					name: selectedHashtag,
+					item: canonicalUrl,
+			  }
+			: null,
+		selectedSearchQuery
+			? {
+					"@type": "ListItem",
+					position: selectedHashtag
+						? selectedAuthor
+							? 6
+							: 5
+						: selectedAuthor
+							? selectedTaxonomySubcategory
+								? 5
+								: selectedTaxonomyCategory
+									? 4
+									: 3
+							: selectedTaxonomySubcategory
+								? 4
+								: selectedTaxonomyCategory
+									? 3
+									: 2,
+					name: `Search: ${selectedSearchQuery}`,
+					item: canonicalUrl,
+			  }
+			: null,
+	].filter(Boolean);
+	const breadcrumbJsonLd =
+		breadcrumbItems.length > 1
+			? {
+					"@context": "https://schema.org",
+					"@type": "BreadcrumbList",
+					itemListElement: breadcrumbItems,
+			  }
+			: null;
+	const itemListJsonLd =
+		posts.length > 0
+			? {
+					"@context": "https://schema.org",
+					"@type": "ItemList",
+					name: seoContext.title,
+					itemListOrder: "https://schema.org/ItemListOrderDescending",
+					numberOfItems: posts.length,
+					itemListElement: posts.map((post, index) => ({
+						"@type": "ListItem",
+						position: index + 1,
+						url: toAbsoluteUrl(post.href),
+						name: post.title,
+					})),
+			  }
+			: null;
 
 	return (
 		<main className="min-h-screen pb-12" style={{ backgroundImage: "var(--page-bg-gradient)" }}>
 			<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(websiteJsonLd) }} />
+				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(collectionPageJsonLd) }} />
+				{breadcrumbJsonLd ? (
+					<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }} />
+				) : null}
+				{itemListJsonLd ? (
+					<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(itemListJsonLd) }} />
+				) : null}
 				<section
 					className="relative overflow-hidden rounded-[2rem] border px-6 py-8 shadow-sm"
 					style={{
@@ -1063,7 +1513,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
 						<nav className="flex flex-wrap gap-2" aria-label="Homepage categories">
 							<Link
-								href={buildPageHref(1, locale, null, null, selectedHashtag, selectedSearchQuery)}
+								href={buildPageHref(1, locale, null, null, selectedHashtag, selectedSearchQuery, selectedAuthor)}
 								aria-current={selectedCategory ? undefined : "page"}
 								className="rounded-full border px-4 py-2 text-sm font-semibold transition-colors hover:bg-[color:var(--cell-3)]"
 								style={{
@@ -1092,7 +1542,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							{taxonomy.map((category) => (
 								<Link
 									key={category.code}
-									href={buildCategoryHref(category.code, locale, selectedHashtag, selectedSearchQuery)}
+									href={buildCategoryHref(category.code, locale, selectedHashtag, selectedSearchQuery, selectedAuthor)}
 									aria-current={selectedCategory === category.code ? "page" : undefined}
 									className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 									style={{
@@ -1136,6 +1586,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 												locale,
 												selectedHashtag,
 												selectedSearchQuery,
+												selectedAuthor,
 											)}
 											aria-current={selectedSubcategory === subcategory.code ? "page" : undefined}
 											className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs"
@@ -1173,7 +1624,34 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 										<p className="mt-2 text-base font-semibold text-[color:var(--accent-1)]">{selectedHashtag}</p>
 									</div>
 									<Link
-										href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, null, selectedSearchQuery)}
+										href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, null, selectedSearchQuery, selectedAuthor)}
+										className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
+										style={{
+											borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
+											color: "var(--txt-1)",
+										}}
+									>
+										Clear
+									</Link>
+								</div>
+							</div>
+						) : null}
+
+						{selectedAuthor ? (
+							<div
+								className="rounded-[1.35rem] border px-4 py-3"
+								style={{
+									backgroundColor: "color-mix(in srgb, var(--cell-1) 90%, transparent)",
+									borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
+								}}
+							>
+								<div className="flex flex-wrap items-center justify-between gap-3">
+									<div>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">Author filter</p>
+										<p className="mt-2 text-base font-semibold text-[color:var(--accent-1)]">@{selectedAuthor}</p>
+									</div>
+									<Link
+										href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, null)}
 										className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 										style={{
 											borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
@@ -1196,6 +1674,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							selectedSubcategory={selectedSubcategory}
 							selectedHashtag={selectedHashtag}
 							selectedSearchQuery={selectedSearchQuery}
+							selectedAuthor={selectedAuthor}
 							totalPosts={totalPosts}
 						/>
 					</div>
@@ -1209,6 +1688,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							selectedSubcategory={selectedSubcategory}
 							selectedHashtag={selectedHashtag}
 							selectedSearchQuery={selectedSearchQuery}
+							selectedAuthor={selectedAuthor}
 						/>
 
 						{error ? (
@@ -1238,11 +1718,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 										? `Nothing matched the current search query: ${selectedSearchQuery}.`
 										: selectedHashtag
 											? `Nothing matched the current hashtag filter: ${selectedHashtag}.`
-											: selectedSubcategory
-												? `Nothing matched the current subcategory filter: ${selectedSubcategory}.`
-												: selectedCategory
-													? `Nothing matched the current category filter: ${selectedCategory}.`
-													: "Nothing matched the current public-post query."}
+												: selectedSubcategory
+													? `Nothing matched the current subcategory filter: ${selectedSubcategory}.`
+													: selectedAuthor
+														? `Nothing matched the current author filter: @${selectedAuthor}.`
+													: selectedCategory
+														? `Nothing matched the current category filter: ${selectedCategory}.`
+														: "Nothing matched the current public-post query."}
 								</p>
 							</section>
 						) : null}
@@ -1397,6 +1879,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 								selectedSubcategory={selectedSubcategory}
 								selectedHashtag={selectedHashtag}
 								selectedSearchQuery={selectedSearchQuery}
+								selectedAuthor={selectedAuthor}
 							/>
 						) : null}
 					</div>

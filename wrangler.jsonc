@@ -52,6 +52,7 @@
 	},
 	"vars": {
 		"NEXTJS_ENV": "production",
+		"NEXT_PUBLIC_SITE_URL": "https://paragify.com",
 		"NEXTAUTH_URL": "https://paragify.com",
 		"OPENAI_BASE_URL": "https://api.openai.com/v1",
 		"OPENAI_BATCH_MODEL": "gpt-5.2",

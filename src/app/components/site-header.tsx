@@ -36,7 +36,7 @@ export async function SiteHeader() {
 		>
 			<div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3">
 				<Link href="/" className="rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-1)]">
-					<h1 className="text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">Paragify</h1>
+					<span className="block text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">Paragify</span>
 					<p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--txt-3)]">Home + Feed</p>
 				</Link>
 				<div className="flex items-center gap-3">
