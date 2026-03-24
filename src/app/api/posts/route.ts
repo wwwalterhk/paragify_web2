@@ -221,6 +221,17 @@ type FetchUrlBatchDoneReadyRow = {
 	updated_at: string | null;
 };
 
+type GenerateHashtagsLocaleRow = {
+	post_id: number;
+	user_pk: number;
+	locale: string | null;
+	title: string | null;
+	batch_id: string | null;
+	generate_hashtags_locale: number | null;
+	prepare_content_refined: string | null;
+	updated_at: string | null;
+};
+
 type Visibility = "public" | "followers" | "private" | "draft" | "prepare" | "published";
 type GeminiBatchPrepareStatus =
 	| "fetch_url_batch_create"
@@ -268,6 +279,14 @@ type SavePostPayload = {
 	pages?: unknown;
 };
 
+type GenerateHashtagsLocaleUpdatePayload = {
+	action?: string | null;
+	post_id?: number | string | null;
+	batch_id?: string | null;
+	generate_hashtags_locale?: number | string | null;
+	src_org_locale?: unknown;
+};
+
 type SavePostResult =
 	| {
 			ok: true;
@@ -276,16 +295,33 @@ type SavePostResult =
 			pagesSaved: number;
 			created: boolean;
 	  }
+		| {
+				ok: false;
+				status: number;
+				message: string;
+		  };
+
+type GenerateHashtagsLocaleUpdateResult =
+	| {
+			ok: true;
+			postId: number;
+			generateHashtagsLocale: number;
+			batchId: string | null;
+			prepareContentRefined: string | null;
+	  }
 	| {
 			ok: false;
 			status: number;
 			message: string;
+			postId: number | null;
 	  };
 
 const POST_SLUG_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const POST_SLUG_LENGTH = 10;
 const POST_SLUG_INSERT_ATTEMPTS = 8;
 const GEMINI_BATCH_ACTION = "gemini_batch_update";
+const GENERATE_HASHTAGS_LOCALE_UPDATE_ACTION = "generate_hashtags_locale_update";
+const GENERATE_HASHTAGS_LOCALE_STATUS_REQUESTED = 1;
 const GEMINI_BATCH_ITEM_TYPE_POSTS = "posts";
 const GEMINI_BATCH_ITEM_PURPOSE_FETCH_URL = "fetch_url_batch";
 const GEMINI_BATCH_ITEM_PURPOSE_PREPARE_CONTENT = "prepare_content_batch";
@@ -541,53 +577,6 @@ function normalizeJsonText(value: unknown): string | null {
 	return JSON.stringify(parsed);
 }
 
-function extractPrepareSrcOrg(value: unknown): Record<string, unknown> | null {
-	const parsed = parsePossiblyEscapedJson(value, 4);
-	const record = asRecord(parsed);
-	if (!record) return null;
-
-	const readSourceString = (input: unknown): string | null => {
-		if (typeof input !== "string") return null;
-		return input.trim();
-	};
-
-	const hashtagsValue = parsePossiblyEscapedJson(record.hashtags, 2);
-	const hashtags = Array.isArray(hashtagsValue)
-		? hashtagsValue
-				.filter((item): item is string => typeof item === "string")
-				.map((item) => item.trim())
-		: null;
-
-	return {
-		category: readSourceString(record.category),
-		subcategory: readSourceString(record.subcategory),
-		subcat_code: readSourceString(record.subcat_code),
-		brand: readSourceString(record.brand),
-		model: readSourceString(record.model),
-		celebrity: readSourceString(record.celebrity),
-		hashtags,
-	};
-}
-
-function mergePrepareContentWithSrcOrg(prepareContentValue: unknown, prepareSrcValue: unknown): string | null {
-	const parsedPrepareContent = parsePossiblyEscapedJson(prepareContentValue, 4);
-	const prepareContentRecord = asRecord(parsedPrepareContent);
-	const srcOrg = extractPrepareSrcOrg(prepareSrcValue);
-	if (!prepareContentRecord || !srcOrg) {
-		return normalizeJsonText(prepareContentValue);
-	}
-
-	const existingSrcOrg = asRecord(parsePossiblyEscapedJson(prepareContentRecord.src_org, 2)) ?? {};
-
-	return JSON.stringify({
-		...prepareContentRecord,
-		src_org: {
-			...existingSrcOrg,
-			...srcOrg,
-		},
-	});
-}
-
 function isGeminiBatchPrepareStatus(value: string | null | undefined): value is GeminiBatchPrepareStatus {
 	return (
 		value === GEMINI_BATCH_PREPARE_STATUS_FETCH_URL_CREATE ||
@@ -613,6 +602,10 @@ function isGeminiBatchUpdateRequest(record: Record<string, unknown>): boolean {
 	if (action === GEMINI_BATCH_ACTION) return true;
 	const prepareStatus = asTrimmedOrNull(record.prepare_status);
 	return isGeminiBatchPrepareStatus(prepareStatus);
+}
+
+function isGenerateHashtagsLocaleUpdateRequest(record: Record<string, unknown>): boolean {
+	return asTrimmedOrNull(record.action) === GENERATE_HASHTAGS_LOCALE_UPDATE_ACTION;
 }
 
 function isVisibility(value: string): value is Visibility {
@@ -1120,6 +1113,191 @@ async function loadFetchUrlBatchDoneReadyPosts(db: D1Database): Promise<FetchUrl
 	return rows.results ?? [];
 }
 
+async function loadGenerateHashtagsLocaleReadyPosts(db: D1Database): Promise<GenerateHashtagsLocaleRow[]> {
+	const rows = await db
+		.prepare(
+			`SELECT p.post_id,
+			        p.user_pk,
+			        p.locale,
+			        p.title,
+			        p.batch_id,
+			        p.generate_hashtags_locale,
+			        p.prepare_content_refined,
+			        p.updated_at
+			   FROM posts p
+			  WHERE p.visibility = 'prepare'
+			    AND p.generate_hashtags_locale = 1
+			    AND p.prepare_content_refined IS NOT NULL
+			    AND trim(p.prepare_content_refined) <> ''
+			  ORDER BY p.updated_at DESC, p.post_id DESC`
+		)
+		.all<GenerateHashtagsLocaleRow>();
+
+	return rows.results ?? [];
+}
+
+async function loadPendingGenerateHashtagsLocalePosts(db: D1Database): Promise<GenerateHashtagsLocaleRow[]> {
+	const rows = await db
+		.prepare(
+			`SELECT p.post_id,
+			        p.user_pk,
+			        p.locale,
+			        p.title,
+			        p.batch_id,
+			        p.generate_hashtags_locale,
+			        p.prepare_content_refined,
+			        p.updated_at
+			   FROM posts p
+			  WHERE p.visibility = 'prepare'
+			    AND p.generate_hashtags_locale = 4
+			    AND p.batch_id IS NOT NULL
+			    AND trim(p.batch_id) <> ''
+			    AND p.prepare_content_refined IS NOT NULL
+			    AND trim(p.prepare_content_refined) <> ''
+			  ORDER BY p.updated_at DESC, p.post_id DESC`
+		)
+		.all<GenerateHashtagsLocaleRow>();
+
+	return rows.results ?? [];
+}
+
+function normalizeStringArray(value: unknown): string[] | null {
+	const parsed = parsePossiblyEscapedJson(value, 2);
+	if (!Array.isArray(parsed)) return null;
+
+	const items = parsed
+		.filter((item): item is string => typeof item === "string")
+		.map((item) => item.trim())
+		.filter((item) => item.length > 0);
+	return items;
+}
+
+function normalizeGenerateHashtagsLocaleSrcOrgLocale(value: unknown): Record<string, unknown> | null {
+	const parsed = parsePossiblyEscapedJson(value, 4);
+	const record = asRecord(parsed);
+	if (!record) return null;
+
+	const nextRecord: Record<string, unknown> = {};
+	const hashtagsLocale = normalizeStringArray(record.hashtags_locale);
+	if (hashtagsLocale && hashtagsLocale.length > 0) {
+		nextRecord.hashtags_locale = hashtagsLocale;
+	}
+
+	for (const key of ["category_locale", "subcategory_locale", "brand_locale", "model_locale", "celebrity_locale"] as const) {
+		const valueText = toOptionalString(record[key]);
+		if (valueText !== null) nextRecord[key] = valueText;
+	}
+
+	return Object.keys(nextRecord).length > 0 ? nextRecord : null;
+}
+
+function mergePrepareContentRefinedSrcOrgLocale(
+	prepareContentRefined: string,
+	srcOrgLocale: unknown,
+): { prepareContentRefined: string | null; error: string | null } {
+	const parsedPrepareContentRefined = parsePossiblyEscapedJson(prepareContentRefined, 4);
+	const prepareContentRefinedRecord = asRecord(parsedPrepareContentRefined);
+	if (!prepareContentRefinedRecord) {
+		return { prepareContentRefined: null, error: "prepare_content_refined must be a JSON object string" };
+	}
+
+	const srcOrgLocaleRecord = normalizeGenerateHashtagsLocaleSrcOrgLocale(srcOrgLocale);
+	if (!srcOrgLocaleRecord) {
+		return { prepareContentRefined: null, error: "src_org_locale must be a JSON object with locale fields" };
+	}
+
+	const existingSrcOrg = asRecord(parsePossiblyEscapedJson(prepareContentRefinedRecord.src_org, 2)) ?? {};
+	const nextRecord: Record<string, unknown> = {
+		...prepareContentRefinedRecord,
+		src_org: {
+			...existingSrcOrg,
+			...srcOrgLocaleRecord,
+		},
+	};
+	return { prepareContentRefined: JSON.stringify(nextRecord), error: null };
+}
+
+async function applyGenerateHashtagsLocaleUpdate(
+	db: D1Database,
+	payload: GenerateHashtagsLocaleUpdatePayload,
+): Promise<GenerateHashtagsLocaleUpdateResult> {
+	const postId = parsePostId(payload.post_id);
+	if (!postId) return { ok: false, status: 400, message: "invalid post_id", postId: null };
+
+	const generateHashtagsLocale = toOptionalInteger(payload.generate_hashtags_locale);
+	if (generateHashtagsLocale === null || generateHashtagsLocale < 0 || generateHashtagsLocale > 4) {
+		return {
+			ok: false,
+			status: 400,
+			message: "generate_hashtags_locale must be an integer between 0 and 4",
+			postId,
+		};
+	}
+
+	const hasSrcOrgLocale = Object.prototype.hasOwnProperty.call(payload, "src_org_locale");
+	const post = await db
+		.prepare("SELECT post_id, batch_id, prepare_content_refined FROM posts WHERE post_id = ? LIMIT 1")
+		.bind(postId)
+		.first<{ post_id: number; batch_id: string | null; prepare_content_refined: string | null }>();
+	if (!post?.post_id) {
+		return { ok: false, status: 404, message: "post not found", postId };
+	}
+
+	const payloadBatchId = asTrimmedOrNull(payload.batch_id);
+	let nextPrepareContentRefined: string | null = post.prepare_content_refined;
+	if (hasSrcOrgLocale) {
+		if (!post.prepare_content_refined || !post.prepare_content_refined.trim()) {
+			return { ok: false, status: 409, message: "prepare_content_refined is empty", postId };
+		}
+
+		const mergeResult = mergePrepareContentRefinedSrcOrgLocale(post.prepare_content_refined, payload.src_org_locale);
+		if (!mergeResult.prepareContentRefined) {
+			return {
+				ok: false,
+				status: 400,
+				message: mergeResult.error ?? "failed to merge src_org_locale",
+				postId,
+			};
+		}
+		nextPrepareContentRefined = mergeResult.prepareContentRefined;
+	}
+
+	const updateResult = hasSrcOrgLocale
+		? await db
+				.prepare(
+					`UPDATE posts
+					    SET generate_hashtags_locale = ?,
+					        batch_id = COALESCE(?, batch_id),
+					        prepare_content_refined = ?,
+					        updated_at = datetime('now')
+					  WHERE post_id = ?`
+				)
+				.bind(generateHashtagsLocale, payloadBatchId, nextPrepareContentRefined, postId)
+				.run()
+		: await db
+				.prepare(
+					`UPDATE posts
+					    SET generate_hashtags_locale = ?,
+					        batch_id = COALESCE(?, batch_id),
+					        updated_at = datetime('now')
+					  WHERE post_id = ?`
+				)
+				.bind(generateHashtagsLocale, payloadBatchId, postId)
+				.run();
+
+	if ((updateResult.meta?.changes ?? 0) < 1) {
+		return { ok: false, status: 409, message: "failed to update generate_hashtags_locale", postId };
+	}
+
+	return {
+		ok: true,
+		postId,
+		generateHashtagsLocale,
+		batchId: payloadBatchId ?? post.batch_id ?? null,
+		prepareContentRefined: nextPrepareContentRefined,
+	};
+}
+
 async function applyGeminiBatchUpdate(
 	db: D1Database,
 	payload: GeminiBatchUpdatePayload,
@@ -1582,22 +1760,23 @@ async function applyGeminiBatchUpdate(
 		if ((updatePostResult.meta?.changes ?? 0) < 1) {
 			return { ok: false, status: 409, message: "failed to update post prepare status", postId };
 		}
-	} else if (hasPrepareData && prepareStatus === GEMINI_BATCH_PREPARE_STATUS_PREPARE_CONTENT_DONE) {
-		const prepareContent = mergePrepareContentWithSrcOrg(payload.prepare_data, existingPost.prepare_src);
-		const updatePostResult = await db
-			.prepare(
-				`UPDATE posts
-				    SET prepare_status = ?,
-				        batch_id = COALESCE(?, batch_id),
-				        prepare_content = ?,
-				        updated_at = datetime('now')
-				  WHERE post_id = ?`
-			)
-			.bind(prepareStatus, postBatchId, prepareContent, postId)
-			.run();
-		if ((updatePostResult.meta?.changes ?? 0) < 1) {
-			return { ok: false, status: 409, message: "failed to update post prepare status", postId };
-		}
+		} else if (hasPrepareData && prepareStatus === GEMINI_BATCH_PREPARE_STATUS_PREPARE_CONTENT_DONE) {
+			const prepareContent = normalizeJsonText(payload.prepare_data);
+			const updatePostResult = await db
+				.prepare(
+					`UPDATE posts
+					    SET prepare_status = ?,
+					        batch_id = COALESCE(?, batch_id),
+					        prepare_content = ?,
+					        generate_hashtags_locale = ?,
+					        updated_at = datetime('now')
+					  WHERE post_id = ?`
+				)
+				.bind(prepareStatus, postBatchId, prepareContent, GENERATE_HASHTAGS_LOCALE_STATUS_REQUESTED, postId)
+				.run();
+			if ((updatePostResult.meta?.changes ?? 0) < 1) {
+				return { ok: false, status: 409, message: "failed to update post prepare status", postId };
+			}
 	} else {
 		const updatePostResult = await db
 			.prepare(
@@ -2093,6 +2272,36 @@ export async function GET(request: Request) {
 				posts,
 			});
 		}
+		const generateHashtagsLocaleReadyRaw = (requestUrl.searchParams.get("generate_hashtags_locale_ready") || "")
+			.trim()
+			.toLowerCase();
+		if (
+			generateHashtagsLocaleReadyRaw === "1" ||
+			generateHashtagsLocaleReadyRaw === "true" ||
+			generateHashtagsLocaleReadyRaw === "yes"
+		) {
+			const posts = await loadGenerateHashtagsLocaleReadyPosts(db);
+			return NextResponse.json({
+				ok: true,
+				count: posts.length,
+				posts,
+			});
+		}
+		const generateHashtagsLocalePendingRaw = (requestUrl.searchParams.get("generate_hashtags_locale_pending") || "")
+			.trim()
+			.toLowerCase();
+		if (
+			generateHashtagsLocalePendingRaw === "1" ||
+			generateHashtagsLocalePendingRaw === "true" ||
+			generateHashtagsLocalePendingRaw === "yes"
+		) {
+			const pending = await loadPendingGenerateHashtagsLocalePosts(db);
+			return NextResponse.json({
+				ok: true,
+				count: pending.length,
+				pending,
+			});
+		}
 
 		const requestedPrepareStatus = asTrimmedOrNull(
 			requestUrl.searchParams.get("prepare_status") ?? requestUrl.searchParams.get("prepareStatus")
@@ -2205,6 +2414,37 @@ export async function POST(request: Request) {
 				batch_job_id: result.batchJobId,
 				batch_item_id: result.batchItemId,
 				gemini_batch_id: result.geminiBatchId,
+			});
+		}
+
+		if (isGenerateHashtagsLocaleUpdateRequest(bodyRecord)) {
+			debugPosts("generate hashtags locale branch selected", {
+				post_id: parsePostId(bodyRecord.post_id),
+				generate_hashtags_locale: toOptionalInteger(bodyRecord.generate_hashtags_locale),
+			});
+			const result = await applyGenerateHashtagsLocaleUpdate(db, bodyRecord as GenerateHashtagsLocaleUpdatePayload);
+			if (!result.ok) {
+				debugPosts("generate hashtags locale update failed", {
+					status: result.status,
+					message: result.message,
+					post_id: result.postId,
+				});
+				return NextResponse.json(
+					{ ok: false, message: result.message, post_id: result.postId },
+					{ status: result.status }
+				);
+			}
+			debugPosts("generate hashtags locale update completed", {
+				post_id: result.postId,
+				generate_hashtags_locale: result.generateHashtagsLocale,
+				batch_id: result.batchId,
+			});
+			return NextResponse.json({
+				ok: true,
+				post_id: result.postId,
+				generate_hashtags_locale: result.generateHashtagsLocale,
+				batch_id: result.batchId,
+				prepare_content_refined: result.prepareContentRefined,
 			});
 		}
 

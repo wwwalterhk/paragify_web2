@@ -22,6 +22,7 @@ type PreparePostRow = {
 	post_slug: string | null;
 	title: string | null;
 	cat_code: string | null;
+	sub_cat_code: string | null;
 	prepare_status: string | null;
 	visibility: string;
 	prepare_content: string | null;
@@ -364,6 +365,7 @@ export async function GET(request: Request) {
             p.post_slug,
             p.title,
             p.cat_code,
+            p.sub_cat_code,
             p.prepare_status,
             p.visibility,
             p.prepare_content,

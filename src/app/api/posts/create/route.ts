@@ -192,6 +192,40 @@ function extractHashtagsFromContent(content: string | null): string[] {
 	);
 }
 
+function extractHashtagsFromList(value: unknown): string[] {
+	if (Array.isArray(value)) {
+		return Array.from(
+			new Set(
+				value
+					.map((item) => (typeof item === "string" ? normalizeHashtagToken(item) : ""))
+					.filter((tag) => tag.length > 0),
+			),
+		);
+	}
+
+	const singleValue = toOptionalString(value);
+	if (!singleValue) {
+		return [];
+	}
+
+	const normalized = normalizeHashtagToken(singleValue);
+	return normalized.length > 0 ? [normalized] : [];
+}
+
+async function insertPostHashtag(db: D1Database, postId: number, tag: string, kind: 0 | 1): Promise<void> {
+	try {
+		await db.prepare("INSERT OR IGNORE INTO post_hashtags (post_id, tag, kind) VALUES (?, ?, ?)").bind(postId, tag, kind).run();
+		return;
+	} catch (error) {
+		const message = `${error}`.toLowerCase();
+		if (!message.includes("no such column") && !message.includes("no column named")) {
+			throw error;
+		}
+	}
+
+	await db.prepare("INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)").bind(postId, tag).run();
+}
+
 function collectPrepareContentHashtagSources(value: unknown, depth = 0): string[] {
 	if (depth > 5) {
 		return [];
@@ -479,6 +513,14 @@ export async function POST(request: Request) {
 		const showPageContent = showPageContentInput === 0 ? 0 : 1;
 		const customContent = toOptionalString(body.custom_content);
 		const prepareContent = normalizeJsonText(body.prepare_content);
+		const prepareContentRecord = getPrepareContentRecord(body.prepare_content);
+		const prepareContentLocaleHashtags = prepareContentRecord
+			? extractHashtagsFromList(prepareContentRecord.hashtags_locale)
+			: [];
+		const srcOrgRecord = prepareContentRecord ? asRecord(parsePossiblyEscapedJson(prepareContentRecord.src_org, 3)) : null;
+		const srcOrgLocaleHashtags = extractHashtagsFromList(srcOrgRecord?.hashtags_locale);
+		const postKeywords = extractHashtagsFromList(srcOrgRecord?.hashtags);
+		const srcOrgSubcategoryCode = toOptionalString(srcOrgRecord?.subcat_code)?.toLowerCase() ?? null;
 		const captionFromPrepareContent = buildIgStyleCaptionFromPrepareContent(body.prepare_content);
 		const caption = captionFromPrepareContent.caption ?? fallbackCaption;
 		const title = toOptionalString(body.title);
@@ -492,6 +534,7 @@ export async function POST(request: Request) {
 				[...extractHashtagsFromContent(caption), ...extractHashtagsFromContent(prepareContentHashtagSources.join("\n"))],
 			),
 		);
+		const basicHashtags = Array.from(new Set([...prepareContentLocaleHashtags, ...srcOrgLocaleHashtags]));
 
 		let postId: number | null = null;
 		let postSlug: string | null = null;
@@ -639,6 +682,7 @@ export async function POST(request: Request) {
 		}
 
 		try {
+			let postsSubcategoryId: number | null = null;
 			const pageStatements = parsedPages.pages.map((page, index) =>
 				db
 					.prepare(
@@ -695,35 +739,77 @@ export async function POST(request: Request) {
 			await db.batch(pageStatements);
 
 			if (postHashtags.length > 0) {
-				const hashtagStatements = postHashtags.map((tag) =>
+				for (const tag of postHashtags) {
+					await insertPostHashtag(db, postId, tag, 1);
+				}
+			}
+
+			if (basicHashtags.length > 0) {
+				for (const tag of basicHashtags) {
+					await insertPostHashtag(db, postId, tag, 0);
+				}
+			}
+
+			if (postKeywords.length > 0) {
+				const keywordStatements = postKeywords.map((tag) =>
 					db
 						.prepare(
 							`
-							INSERT OR IGNORE INTO post_hashtags (post_id, tag)
+							INSERT OR IGNORE INTO post_keywords (post_id, tag)
 							VALUES (?, ?)
 							`,
 						)
 						.bind(postId, tag),
 				);
 
-				await db.batch(hashtagStatements);
+				await db.batch(keywordStatements);
 			}
+
+			if (srcOrgSubcategoryCode) {
+				const subcategory = await db
+					.prepare("SELECT posts_subcategory_id FROM posts_subcategories WHERE lower(code) = ? LIMIT 1")
+					.bind(srcOrgSubcategoryCode)
+					.first<{ posts_subcategory_id: number }>()
+					.catch(() => null);
+
+				postsSubcategoryId = subcategory?.posts_subcategory_id ?? null;
+				if (postsSubcategoryId) {
+					await db
+						.prepare(
+							`
+							INSERT OR IGNORE INTO posts_subcategory_assignments (
+								post_id,
+								posts_subcategory_id,
+								is_primary,
+								sort_order
+							)
+							VALUES (?, ?, 1, 0)
+							`,
+						)
+						.bind(postId, postsSubcategoryId)
+						.run()
+						.catch(() => {});
+				}
+			}
+
+			return NextResponse.json({
+				ok: true,
+				post_id: postId,
+				post_slug: postSlug,
+				prepare_post_id: hasPreparePostId ? preparePostId : null,
+				posts_subcategory_id: postsSubcategoryId,
+			});
 		} catch (insertPostRelatedDataError) {
 			await db.batch([
 				db.prepare("DELETE FROM post_pages WHERE post_id = ?").bind(postId as number),
 				db.prepare("DELETE FROM post_hashtags WHERE post_id = ?").bind(postId as number),
+				db.prepare("DELETE FROM post_keywords WHERE post_id = ?").bind(postId as number),
+				db.prepare("DELETE FROM posts_subcategory_assignments WHERE post_id = ?").bind(postId as number),
 				db.prepare("DELETE FROM posts WHERE post_id = ?").bind(postId as number),
 			]);
 
 			throw insertPostRelatedDataError;
 		}
-
-		return NextResponse.json({
-			ok: true,
-			post_id: postId,
-			post_slug: postSlug,
-			prepare_post_id: hasPreparePostId ? preparePostId : null,
-		});
 	} catch (error) {
 		return NextResponse.json(
 			{

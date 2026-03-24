@@ -34,14 +34,18 @@ export async function SiteHeader() {
 				backgroundColor: "color-mix(in srgb, var(--cell-1) 90%, transparent)",
 			}}
 		>
-			<div className="mx-auto flex w-full max-w-xl items-center justify-between px-4 py-3">
+			<div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3">
 				<Link href="/" className="rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-1)]">
 					<h1 className="text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">Paragify</h1>
-					<p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--txt-3)]">
-						Public Feed
-					</p>
+					<p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--txt-3)]">Home + Feed</p>
 				</Link>
 				<div className="flex items-center gap-3">
+					<Link
+						href="/feed"
+						className="hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--cell-2)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--txt-2)] hover:bg-[color:var(--cell-3)] sm:inline-flex"
+					>
+						Feed
+					</Link>
 					{sessionUser ? (
 						<>
 							<Link
@@ -51,6 +55,7 @@ export async function SiteHeader() {
 								aria-label={`${signedInName} avatar`}
 							>
 								{signedInAvatar ? (
+									// eslint-disable-next-line @next/next/no-img-element
 									<img
 										src={signedInAvatar}
 										alt={`${signedInName} avatar`}

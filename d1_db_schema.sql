@@ -301,6 +301,7 @@ CREATE TABLE IF NOT EXISTS posts (
   generate_cover_img INTEGER NOT NULL DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
   generate_heading_1_img INTEGER NOT NULL DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
   generate_heading_2_img INTEGER NOT NULL DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed
+  generate_hashtags_locale INTEGER NOT NULL DEFAULT 0, -- 0 = none, 1 = requested, 2 = done, 3 = failed, 4 = waiting for result
   prepare_plan    TEXT, 
   prepare_mode    TEXT, -- gemini operation mode, e.g. fast, thiking, pro
   ig_ref        TEXT, -- instagram reference ID if published to IG

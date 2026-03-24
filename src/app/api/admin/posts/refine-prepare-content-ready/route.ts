@@ -7,6 +7,8 @@ type RefinedPreparePostRow = {
 	post_id: number;
 	user_pk: number;
 	post_slug: string | null;
+	cat_code: string | null;
+	sub_cat_code: string | null;
 	prepare_post_id_cnt: number;
 	title: string | null;
 	prepare_status: string | null;
@@ -110,6 +112,8 @@ export async function GET(request: Request) {
             p.post_id,
             p.user_pk,
             p.post_slug,
+            p.cat_code,
+            p.sub_cat_code,
             ${PREPARE_POST_ID_CNT_SQL} AS prepare_post_id_cnt,
             p.title,
             p.prepare_status,

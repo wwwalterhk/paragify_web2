@@ -18,6 +18,8 @@ type PreparePostRow = {
 	user_pk: number;
 	post_slug: string | null;
 	brand_slug: string | null;
+	cat_code: string | null;
+	sub_cat_code: string | null;
 	prepare_post_id_cnt: number;
 	title: string | null;
 	prepare_status: string | null;
@@ -25,6 +27,7 @@ type PreparePostRow = {
 	prepare_content: string | null;
 	prepare_content_refined: string | null;
 	refine_prepare_content: number;
+	generate_hashtags_locale: number | null;
 	cover_img_url: string | null;
 	generate_cover_img: number;
 	heading_1_img_url: string | null;
@@ -195,6 +198,8 @@ export async function GET(request: Request) {
             p.user_pk,
             p.post_slug,
             p.brand_slug,
+            p.cat_code,
+            p.sub_cat_code,
             ${PREPARE_POST_ID_CNT_SQL} AS prepare_post_id_cnt,
             p.title,
             p.prepare_status,
@@ -202,6 +207,7 @@ export async function GET(request: Request) {
             p.prepare_content,
             p.prepare_content_refined,
             p.refine_prepare_content,
+            p.generate_hashtags_locale,
             p.cover_img_url,
             p.generate_cover_img,
             p.heading_1_img_url,

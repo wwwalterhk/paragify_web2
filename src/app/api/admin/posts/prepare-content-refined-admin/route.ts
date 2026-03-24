@@ -21,6 +21,11 @@ type UpdatePrepareContentRefinedBody = {
 	post_id?: unknown;
 	prepare_content_refined?: unknown;
 	refine_prepare_content?: unknown;
+	cat_code?: unknown;
+	sub_cat_code?: unknown;
+	subcat_code?: unknown;
+	sub_category_code?: unknown;
+	subcategory_code?: unknown;
 };
 
 function readString(value: unknown): string | null {
@@ -114,6 +119,10 @@ function mergePrepareContentRefinedWithSourceData(
 	prepareContentRefined: string,
 	prepareSrc: unknown,
 	prepareContent: unknown,
+	taxonomyOverrides: {
+		catCode?: string | null;
+		subcatCode?: string | null;
+	} = {},
 ): string {
 	const parsedPrepareContentRefined = parsePossiblyEscapedJson(prepareContentRefined, 4);
 	const prepareContentRefinedRecord = asRecord(parsedPrepareContentRefined);
@@ -126,11 +135,32 @@ function mergePrepareContentRefinedWithSourceData(
 	const existingSrcOrg = asRecord(parsePossiblyEscapedJson(prepareContentRefinedRecord.src_org, 2)) ?? {};
 	const nextRecord: Record<string, unknown> = { ...prepareContentRefinedRecord };
 
-	if (srcOrg) {
-		nextRecord.src_org = {
-			...existingSrcOrg,
-			...srcOrg,
-		};
+	const nextSrcOrg: Record<string, unknown> = srcOrg
+		? {
+				...existingSrcOrg,
+				...srcOrg,
+			}
+		: { ...existingSrcOrg };
+
+	if (Object.prototype.hasOwnProperty.call(taxonomyOverrides, "catCode")) {
+		if (taxonomyOverrides.catCode) {
+			nextSrcOrg.category = taxonomyOverrides.catCode;
+		} else {
+			delete nextSrcOrg.category;
+			delete nextSrcOrg.cat_code;
+		}
+	}
+
+	if (Object.prototype.hasOwnProperty.call(taxonomyOverrides, "subcatCode")) {
+		if (taxonomyOverrides.subcatCode) {
+			nextSrcOrg.subcat_code = taxonomyOverrides.subcatCode;
+		} else {
+			delete nextSrcOrg.subcat_code;
+		}
+	}
+
+	if (srcOrg || Object.keys(existingSrcOrg).length > 0 || Object.keys(taxonomyOverrides).length > 0) {
+		nextRecord.src_org = nextSrcOrg;
 	}
 
 	if (hashtagsLocale) {
@@ -224,6 +254,18 @@ export async function PATCH(request: Request) {
 		const prepareContentRefined = parseBodyPrepareContentRefined(body?.prepare_content_refined);
 		const hasRefinePrepareContent = body !== null && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "refine_prepare_content");
 		const refinePrepareContent = hasRefinePrepareContent ? parseBodyInteger(body?.refine_prepare_content) : null;
+		const hasCatCode = body !== null && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "cat_code");
+		const hasSubCatCode = body !== null
+			&& typeof body === "object"
+			&& (
+				Object.prototype.hasOwnProperty.call(body, "sub_cat_code")
+				|| Object.prototype.hasOwnProperty.call(body, "subcat_code")
+				|| Object.prototype.hasOwnProperty.call(body, "sub_category_code")
+				|| Object.prototype.hasOwnProperty.call(body, "subcategory_code")
+			);
+		const catCode = hasCatCode ? readString(body?.cat_code)?.toLowerCase() ?? null : null;
+		const subCatCodeRaw = body?.sub_cat_code ?? body?.subcat_code ?? body?.sub_category_code ?? body?.subcategory_code;
+		const subCatCode = hasSubCatCode ? readString(subCatCodeRaw)?.toLowerCase() ?? null : null;
 
 		if (!postId) {
 			return NextResponse.json({ ok: false, message: "post_id is required" }, { status: 400 });
@@ -247,21 +289,32 @@ export async function PATCH(request: Request) {
 			prepareContentRefined,
 			post.prepare_src,
 			post.prepare_content,
+			{
+				...(hasCatCode ? { catCode } : {}),
+				...(hasSubCatCode ? { subcatCode: subCatCode } : {}),
+			},
 		);
 
-		const updateQuery = hasRefinePrepareContent
-			? `UPDATE posts
-				    SET prepare_content_refined = ?,
-				        refine_prepare_content = ?,
-				        updated_at = datetime('now')
-				  WHERE post_id = ?`
-			: `UPDATE posts
-				    SET prepare_content_refined = ?,
-				        updated_at = datetime('now')
+		const updateColumns = ["prepare_content_refined = ?"];
+		const updateBindings: Array<string | number | null> = [prepareContentRefinedWithSourceData];
+		if (hasRefinePrepareContent) {
+			updateColumns.push("refine_prepare_content = ?");
+			updateBindings.push(refinePrepareContent);
+		}
+		if (hasCatCode) {
+			updateColumns.push("cat_code = ?");
+			updateBindings.push(catCode);
+		}
+		if (hasSubCatCode) {
+			updateColumns.push("sub_cat_code = ?");
+			updateBindings.push(subCatCode);
+		}
+		updateColumns.push("updated_at = datetime('now')");
+
+		const updateQuery = `UPDATE posts
+				    SET ${updateColumns.join(",\n				        ")}
 				  WHERE post_id = ?`;
-		const updateResult = hasRefinePrepareContent
-			? await db.prepare(updateQuery).bind(prepareContentRefinedWithSourceData, refinePrepareContent, postId).run()
-			: await db.prepare(updateQuery).bind(prepareContentRefinedWithSourceData, postId).run();
+		const updateResult = await db.prepare(updateQuery).bind(...updateBindings, postId).run();
 
 		if ((updateResult.meta?.changes ?? 0) < 1) {
 			return NextResponse.json({ ok: false, message: "failed to update post", post_id: postId }, { status: 409 });
@@ -272,6 +325,8 @@ export async function PATCH(request: Request) {
 			post_id: postId,
 			prepare_content_refined: prepareContentRefinedWithSourceData,
 			...(hasRefinePrepareContent ? { refine_prepare_content: refinePrepareContent } : {}),
+			...(hasCatCode ? { cat_code: catCode } : {}),
+			...(hasSubCatCode ? { sub_cat_code: subCatCode } : {}),
 		});
 	} catch (error) {
 		return NextResponse.json(

@@ -37,9 +37,6 @@ async function handleUpdateBrandSlug(request: Request) {
 	if (!postId) {
 		return NextResponse.json({ ok: false, message: "invalid post_id" }, { status: 400 });
 	}
-	if (!brandSlug) {
-		return NextResponse.json({ ok: false, message: "invalid brand_slug" }, { status: 400 });
-	}
 
 	const { env } = await getCloudflareContext({ async: true });
 	const db = (env as CloudflareEnv & { DB?: D1Database }).DB;
@@ -88,4 +85,3 @@ export async function PATCH(request: Request) {
 export function GET() {
 	return NextResponse.json({ ok: false, message: "Method not allowed" }, { status: 405 });
 }
-

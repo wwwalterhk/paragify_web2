@@ -7,6 +7,8 @@ type GenerateCoverImgReadyPostRow = {
 	post_id: number;
 	user_pk: number;
 	post_slug: string | null;
+	cat_code: string | null;
+	sub_cat_code: string | null;
 	title: string | null;
 	prepare_status: string | null;
 	visibility: string;
@@ -82,6 +84,8 @@ export async function GET(request: Request) {
             p.post_id,
             p.user_pk,
             p.post_slug,
+            p.cat_code,
+            p.sub_cat_code,
             p.title,
             p.prepare_status,
             p.visibility,
