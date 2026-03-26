@@ -2,6 +2,13 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { SiteFooter } from "./components/site-footer";
+import {
+	DEFAULT_POST_COUNTRY_CODE,
+	getPostCountryLocaleValues,
+	normalizePostLocaleFilterValue,
+	readPostCountryParam,
+	type PostCountryCode,
+} from "@/lib/post-country-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -245,6 +252,7 @@ function buildPageHref(
 	hashtag: string | null = null,
 	searchQuery: string | null = null,
 	authorHandle: string | null = null,
+	countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE,
 ): string {
 	const params = new URLSearchParams();
 	if (page > 1) {
@@ -268,6 +276,9 @@ function buildPageHref(
 	if (authorHandle) {
 		params.set("author", authorHandle);
 	}
+	if (countryCode !== DEFAULT_POST_COUNTRY_CODE) {
+		params.set("country", countryCode);
+	}
 	const query = params.toString();
 	return query ? `/?${query}` : "/";
 }
@@ -278,8 +289,9 @@ function buildCategoryHref(
 	hashtag: string | null = null,
 	searchQuery: string | null = null,
 	authorHandle: string | null = null,
+	countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE,
 ): string {
-	return buildPageHref(1, locale, categoryCode, null, hashtag, searchQuery, authorHandle);
+	return buildPageHref(1, locale, categoryCode, null, hashtag, searchQuery, authorHandle, countryCode);
 }
 
 function buildSubcategoryHref(
@@ -289,8 +301,9 @@ function buildSubcategoryHref(
 	hashtag: string | null = null,
 	searchQuery: string | null = null,
 	authorHandle: string | null = null,
+	countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE,
 ): string {
-	return buildPageHref(1, locale, categoryCode, subcategoryCode, hashtag, searchQuery, authorHandle);
+	return buildPageHref(1, locale, categoryCode, subcategoryCode, hashtag, searchQuery, authorHandle, countryCode);
 }
 
 function getHomeSeoContext({
@@ -301,6 +314,7 @@ function getHomeSeoContext({
 	hashtag,
 	searchQuery,
 	authorHandle,
+	countryCode,
 }: {
 	locale: Locale;
 	page: number;
@@ -309,6 +323,7 @@ function getHomeSeoContext({
 	hashtag: string | null;
 	searchQuery: string | null;
 	authorHandle: string | null;
+	countryCode: PostCountryCode;
 }): HomeSeoContext {
 	const categoryLabel = toSeoLabel(categoryCode);
 	const subcategoryLabel = toSeoLabel(subcategoryCode);
@@ -322,7 +337,7 @@ function getHomeSeoContext({
 			? `${subcategoryLabel} in ${categoryLabel}`
 			: subcategoryLabel ?? categoryLabel;
 	const pageSuffix = page > 1 ? ` - Page ${page}` : "";
-	const canonicalPath = buildPageHref(page, locale, categoryCode, subcategoryCode, hashtag, searchQuery, normalizedAuthorHandle);
+	const canonicalPath = buildPageHref(page, locale, categoryCode, subcategoryCode, hashtag, searchQuery, normalizedAuthorHandle, countryCode);
 
 	if (searchQueryLabel) {
 		return {
@@ -456,6 +471,7 @@ function getHomeSeoContext({
 export async function generateMetadata({ searchParams }: HomePageProps): Promise<Metadata> {
 	const resolvedSearchParams = (await searchParams) || {};
 	const locale = readLocaleParam(resolvedSearchParams.locale);
+	const countryCode = readPostCountryParam(resolvedSearchParams.country);
 	const categoryCode = readCategoryParam(resolvedSearchParams.category);
 	const subcategoryCode = readSubcategoryParam(resolvedSearchParams.subcategory);
 	const hashtag = readHashtagParam(resolvedSearchParams.hashtag);
@@ -470,6 +486,7 @@ export async function generateMetadata({ searchParams }: HomePageProps): Promise
 		hashtag,
 		searchQuery,
 		authorHandle,
+		countryCode,
 	});
 	const canonicalUrl = toAbsoluteUrl(seoContext.canonicalPath);
 
@@ -865,6 +882,7 @@ async function loadHomePageData(
 	hashtag: string | null,
 	searchQuery: string | null,
 	authorHandle: string | null,
+	countryCode: PostCountryCode,
 ): Promise<HomePageData> {
 	try {
 		const { env } = await getCloudflareContext({ async: true });
@@ -880,6 +898,9 @@ async function loadHomePageData(
 			};
 		}
 
+		const countryLocaleValues = getPostCountryLocaleValues(countryCode).map((value) => normalizePostLocaleFilterValue(value));
+		const countryLocalePlaceholders = countryLocaleValues.map(() => "?").join(", ");
+		const countryFilterClause = ` AND lower(replace(COALESCE(p.locale, ''), '_', '-')) IN (${countryLocalePlaceholders})`;
 		const categoryFilterClause = categoryCode
 			? ` AND EXISTS (
 				SELECT 1
@@ -930,6 +951,7 @@ async function loadHomePageData(
 			: "";
 		const authorFilterBindings = authorHandle ? [authorHandle] : [];
 		const filterBindings = [
+			...countryLocaleValues,
 			...categoryFilterBindings,
 			...subcategoryFilterBindings,
 			...hashtagFilterBindings,
@@ -941,7 +963,7 @@ async function loadHomePageData(
 			.prepare(
 				`SELECT COUNT(1) AS total
 				FROM posts p
-				WHERE ${PUBLIC_POSTS_WHERE}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}${authorFilterClause}`,
+				WHERE ${PUBLIC_POSTS_WHERE}${countryFilterClause}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}${authorFilterClause}`,
 			)
 			.bind(...filterBindings)
 			.first<{ total: number }>();
@@ -966,7 +988,7 @@ async function loadHomePageData(
 				FROM posts p
 				LEFT JOIN users u
 					ON u.user_pk = p.user_pk
-				WHERE ${PUBLIC_POSTS_WHERE}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}${authorFilterClause}
+				WHERE ${PUBLIC_POSTS_WHERE}${countryFilterClause}${categoryFilterClause}${subcategoryFilterClause}${hashtagFilterClause}${searchFilterClause}${authorFilterClause}
 				ORDER BY p.post_id DESC
 				LIMIT ? OFFSET ?`,
 			)
@@ -1044,6 +1066,7 @@ async function loadHomePageData(
 				LEFT JOIN posts p
 					ON p.post_id = psa.post_id
 					AND p.visibility = 'public'
+					AND lower(replace(COALESCE(p.locale, ''), '_', '-')) IN (${countryLocalePlaceholders})
 				WHERE pc.is_active = 1
 				GROUP BY
 					pc.posts_category_id,
@@ -1060,7 +1083,7 @@ async function loadHomePageData(
 					psct_en.description
 				ORDER BY pc.sort_order ASC, psc.sort_order ASC, psc.posts_subcategory_id ASC`,
 			)
-			.bind(locale, locale)
+			.bind(locale, locale, ...countryLocaleValues)
 			.all<TaxonomyRow>();
 
 		const assignmentMap = buildPostAssignments(assignmentRows);
@@ -1093,6 +1116,7 @@ function SearchPanel({
 	selectedHashtag,
 	selectedSearchQuery,
 	selectedAuthor,
+	selectedCountry,
 	totalPosts,
 }: {
 	locale: Locale;
@@ -1101,6 +1125,7 @@ function SearchPanel({
 	selectedHashtag: string | null;
 	selectedSearchQuery: string | null;
 	selectedAuthor: string | null;
+	selectedCountry: PostCountryCode;
 	totalPosts: number;
 }) {
 	return (
@@ -1121,6 +1146,7 @@ function SearchPanel({
 			</div>
 			<form action="/" method="get" className="space-y-4">
 				{locale !== DEFAULT_LOCALE ? <input type="hidden" name="locale" value={locale} /> : null}
+				{selectedCountry !== DEFAULT_POST_COUNTRY_CODE ? <input type="hidden" name="country" value={selectedCountry} /> : null}
 				{selectedCategory ? <input type="hidden" name="category" value={selectedCategory} /> : null}
 				{selectedSubcategory ? <input type="hidden" name="subcategory" value={selectedSubcategory} /> : null}
 				{selectedHashtag ? <input type="hidden" name="hashtag" value={selectedHashtag} /> : null}
@@ -1156,7 +1182,7 @@ function SearchPanel({
 						Search
 					</button>
 					<Link
-						href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag, null, selectedAuthor)}
+						href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag, null, selectedAuthor, selectedCountry)}
 						className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 						style={{
 							borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
@@ -1180,6 +1206,7 @@ function Pagination({
 	selectedHashtag,
 	selectedSearchQuery,
 	selectedAuthor,
+	selectedCountry,
 }: {
 	page: number;
 	totalPages: number;
@@ -1189,6 +1216,7 @@ function Pagination({
 	selectedHashtag: string | null;
 	selectedSearchQuery: string | null;
 	selectedAuthor: string | null;
+	selectedCountry: PostCountryCode;
 }) {
 	const previousHref = buildPageHref(
 		Math.max(1, page - 1),
@@ -1198,8 +1226,9 @@ function Pagination({
 		selectedHashtag,
 		selectedSearchQuery,
 		selectedAuthor,
+		selectedCountry,
 	);
-	const nextHref = buildPageHref(page + 1, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, selectedAuthor);
+	const nextHref = buildPageHref(page + 1, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, selectedAuthor, selectedCountry);
 	const hasPrevious = page > 1;
 	const hasNext = totalPages > 0 && page < totalPages;
 	const pageItems: Array<{ type: "page"; value: number } | { type: "ellipsis"; key: string }> = [];
@@ -1294,6 +1323,7 @@ function Pagination({
 											selectedHashtag,
 											selectedSearchQuery,
 											selectedAuthor,
+											selectedCountry,
 										)}
 										className="rounded-full border px-3 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 										style={{ borderColor: "var(--surface-border)", color: "var(--txt-1)" }}
@@ -1317,6 +1347,7 @@ function Pagination({
 export default async function HomePage({ searchParams }: HomePageProps) {
 	const resolvedSearchParams = (await searchParams) || {};
 	const locale = readLocaleParam(resolvedSearchParams.locale);
+	const selectedCountry = readPostCountryParam(resolvedSearchParams.country);
 	const selectedCategory = readCategoryParam(resolvedSearchParams.category);
 	const selectedSubcategory = readSubcategoryParam(resolvedSearchParams.subcategory);
 	const selectedHashtag = readHashtagParam(resolvedSearchParams.hashtag);
@@ -1331,6 +1362,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		hashtag: selectedHashtag,
 		searchQuery: selectedSearchQuery,
 		authorHandle: selectedAuthor,
+		countryCode: selectedCountry,
 	});
 	const { error, page, totalPages, totalPosts, posts, taxonomy } = await loadHomePageData(
 		requestedPage,
@@ -1340,11 +1372,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		selectedHashtag,
 		selectedSearchQuery,
 		selectedAuthor,
+		selectedCountry,
 	);
 	const selectedTaxonomyCategory = selectedCategory ? taxonomy.find((category) => category.code === selectedCategory) ?? null : null;
 	const selectedTaxonomySubcategory =
 		selectedTaxonomyCategory?.subcategories.find((subcategory) => subcategory.code === selectedSubcategory) ?? null;
-	const canonicalUrl = toAbsoluteUrl(buildPageHref(page, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, selectedAuthor));
+	const canonicalUrl = toAbsoluteUrl(
+		buildPageHref(page, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, selectedAuthor, selectedCountry),
+	);
 	const collectionDescription =
 		selectedTaxonomySubcategory?.description ??
 		selectedTaxonomyCategory?.description ??
@@ -1389,7 +1424,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 					position: 2,
 					name: selectedTaxonomyCategory.name,
 					item: toAbsoluteUrl(
-						buildPageHref(1, locale, selectedTaxonomyCategory.code, null, selectedHashtag, selectedSearchQuery, selectedAuthor),
+						buildPageHref(1, locale, selectedTaxonomyCategory.code, null, selectedHashtag, selectedSearchQuery, selectedAuthor, selectedCountry),
 					),
 			  }
 			: null,
@@ -1407,6 +1442,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							selectedHashtag,
 							selectedSearchQuery,
 							selectedAuthor,
+							selectedCountry,
 						),
 					),
 			  }
@@ -1498,7 +1534,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 					<div className="flex flex-col gap-5">
 						<nav className="flex flex-wrap gap-2" aria-label="Homepage categories">
 							<Link
-								href={buildPageHref(1, locale, null, null, selectedHashtag, selectedSearchQuery, selectedAuthor)}
+								href={buildPageHref(1, locale, null, null, selectedHashtag, selectedSearchQuery, selectedAuthor, selectedCountry)}
 								aria-current={selectedCategory ? undefined : "page"}
 								className="rounded-full border px-4 py-2 text-sm font-semibold transition-colors hover:bg-[color:var(--cell-3)]"
 								style={{
@@ -1527,7 +1563,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							{taxonomy.map((category) => (
 								<Link
 									key={category.code}
-									href={buildCategoryHref(category.code, locale, selectedHashtag, selectedSearchQuery, selectedAuthor)}
+									href={buildCategoryHref(category.code, locale, selectedHashtag, selectedSearchQuery, selectedAuthor, selectedCountry)}
 									aria-current={selectedCategory === category.code ? "page" : undefined}
 									className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 									style={{
@@ -1566,6 +1602,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 												selectedHashtag,
 												selectedSearchQuery,
 												selectedAuthor,
+												selectedCountry,
 											)}
 											aria-current={selectedSubcategory === subcategory.code ? "page" : undefined}
 											className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs"
@@ -1603,7 +1640,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 										<p className="mt-2 text-base font-semibold text-[color:var(--accent-1)]">{selectedHashtag}</p>
 									</div>
 									<Link
-										href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, null, selectedSearchQuery, selectedAuthor)}
+										href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, null, selectedSearchQuery, selectedAuthor, selectedCountry)}
 										className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 										style={{
 											borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
@@ -1630,7 +1667,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 										<p className="mt-2 text-base font-semibold text-[color:var(--accent-1)]">@{selectedAuthor}</p>
 									</div>
 									<Link
-										href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, null)}
+										href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, null, selectedCountry)}
 										className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 										style={{
 											borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
@@ -1654,6 +1691,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							selectedHashtag={selectedHashtag}
 							selectedSearchQuery={selectedSearchQuery}
 							selectedAuthor={selectedAuthor}
+							selectedCountry={selectedCountry}
 							totalPosts={totalPosts}
 						/>
 					</div>
@@ -1668,6 +1706,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							selectedHashtag={selectedHashtag}
 							selectedSearchQuery={selectedSearchQuery}
 							selectedAuthor={selectedAuthor}
+							selectedCountry={selectedCountry}
 						/>
 
 						{error ? (
@@ -1859,6 +1898,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 								selectedHashtag={selectedHashtag}
 								selectedSearchQuery={selectedSearchQuery}
 								selectedAuthor={selectedAuthor}
+								selectedCountry={selectedCountry}
 							/>
 						) : null}
 					</div>

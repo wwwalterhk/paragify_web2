@@ -1,5 +1,6 @@
 import {
 	ChatBubbleOvalLeftEllipsisIcon,
+	NewspaperIcon,
 	PlusIcon,
 	UserCircleIcon,
 } from "@heroicons/react/24/outline";
@@ -7,6 +8,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import { getFeedAvatarInitials } from "@/lib/feed-posts";
+import { SiteCountrySelector } from "./site-country-selector";
 
 export async function SiteHeader() {
 	const session = await getServerSession(authOptions);
@@ -34,18 +36,21 @@ export async function SiteHeader() {
 				backgroundColor: "color-mix(in srgb, var(--cell-1) 90%, transparent)",
 			}}
 		>
-			<div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3">
+			<div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
 				<Link href="/" className="rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-1)]">
 					<span className="block text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">Paragify</span>
 					<p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--txt-3)]">Home + Feed</p>
 				</Link>
-				<div className="flex items-center gap-3">
+				<div className="flex flex-wrap items-center justify-end gap-3">
 					<Link
 						href="/feed"
-						className="hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--cell-2)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--txt-2)] hover:bg-[color:var(--cell-3)] sm:inline-flex"
+						className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--cell-2)] text-[color:var(--txt-2)] hover:bg-[color:var(--cell-3)]"
+						title="Feed"
+						aria-label="Open feed"
 					>
-						Feed
+						<NewspaperIcon className="h-5 w-5" aria-hidden="true" />
 					</Link>
+					<SiteCountrySelector />
 					{sessionUser ? (
 						<>
 							<Link

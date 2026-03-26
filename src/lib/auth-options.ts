@@ -82,6 +82,36 @@ function readString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function getNextAuthErrorMessage(metadata: unknown): string | null {
+	if (!metadata) {
+		return null;
+	}
+	if (metadata instanceof Error) {
+		return readString(metadata.message);
+	}
+	if (typeof metadata === "object") {
+		const record = metadata as { message?: unknown; error?: unknown };
+		const directMessage = readString(record.message);
+		if (directMessage) {
+			return directMessage;
+		}
+		if (record.error instanceof Error) {
+			return readString(record.error.message);
+		}
+		if (record.error && typeof record.error === "object") {
+			return readString((record.error as { message?: unknown }).message);
+		}
+	}
+	return null;
+}
+
+function shouldIgnoreJwtSessionError(code: string, metadata: unknown): boolean {
+	if (code !== "JWT_SESSION_ERROR") {
+		return false;
+	}
+	return getNextAuthErrorMessage(metadata) === "decryption operation failed";
+}
+
 function normalizeLocale(value?: string | null): "en" | "zh" {
 	if (!value) return "zh";
 	return value.toLowerCase().startsWith("en") ? "en" : "zh";
@@ -411,6 +441,14 @@ export const authOptions: NextAuthOptions = {
 		async signIn(message) {
 			// Temporary: log sign-in events for debugging
 			console.log("NextAuth signIn event:", message);
+		},
+	},
+	logger: {
+		error(code, metadata) {
+			if (shouldIgnoreJwtSessionError(code, metadata)) {
+				return;
+			}
+			console.error(`[next-auth][error][${code}]`, `\nhttps://next-auth.js.org/errors#${code.toLowerCase()}`, getNextAuthErrorMessage(metadata), metadata);
 		},
 	},
 	secret: process.env.NEXTAUTH_SECRET,

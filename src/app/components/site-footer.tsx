@@ -18,7 +18,6 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 				terms: "Terms",
 				accountDeletion: "Account Deletion",
 				rights: "All rights reserved.",
-				disclaimer: "Explore summaries, public posts, and generated content for discovery, then open the original source when you need full context.",
 		  }
 		: {
 				home: "首頁",
@@ -29,7 +28,6 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 				terms: "使用條款",
 				accountDeletion: "刪除帳戶",
 				rights: "保留所有權利。",
-				disclaimer: "編輯摘要、公開貼文與生成內容僅供瀏覽及參考；如涉及重要資訊，請以原始來源為準。",
 		  };
 
 	return (
@@ -82,8 +80,6 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 								</Link>
 							</nav>
 						</div>
-
-						<p className="mt-4 max-w-4xl text-xs leading-relaxed text-[color:var(--txt-3)]">{t.disclaimer}</p>
 					</div>
 				</div>
 			</div>
