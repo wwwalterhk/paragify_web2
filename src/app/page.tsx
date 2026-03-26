@@ -1,12 +1,15 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { SiteFooter } from "./components/site-footer";
 import {
 	DEFAULT_POST_COUNTRY_CODE,
 	getPostCountryLocaleValues,
+	getPostCountryPageLocale,
 	normalizePostLocaleFilterValue,
-	readPostCountryParam,
+	POST_COUNTRY_COOKIE_KEY,
+	resolvePostCountrySelection,
 	type PostCountryCode,
 } from "@/lib/post-country-filter";
 
@@ -21,11 +24,156 @@ const PRIMARY_CDN_ORIGIN = "https://cdn.paragify.com";
 const PUBLIC_POSTS_WHERE = "p.visibility = 'public'";
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
 
-type Locale = "en" | "zh";
+type Locale = "en" | "zh" | "ja";
+
+type HomePageCopy = {
+	searchBadge: string;
+	searchTitle: string;
+	searchQueryLabel: string;
+	searchPlaceholder: string;
+	searchAction: string;
+	clearAction: string;
+	homeLabel: string;
+	feedLabel: string;
+	navCategoriesAria: string;
+	hashtagFilterLabel: string;
+	authorFilterLabel: string;
+	dataUnavailableLabel: string;
+	noPublicPostsLabel: string;
+	headingImageFallbackLabel: string;
+	fallbackPostTitle: (postId: number) => string;
+	unknownDate: string;
+	unknownAuthor: string;
+	publishedLabel: string;
+	openPostLabel: string;
+	pageNumbersAria: string;
+	previousAction: string;
+	nextAction: string;
+	resultCount: (count: number) => string;
+	pageSummary: (page: number, totalPages: number) => string;
+	noMatchSearchQuery: (value: string) => string;
+	noMatchHashtag: (value: string) => string;
+	noMatchSubcategory: (value: string) => string;
+	noMatchAuthor: (value: string) => string;
+	noMatchCategory: (value: string) => string;
+	noMatchFallback: string;
+	dbUnavailableError: string;
+	loadFailedError: string;
+};
+
+const HOME_PAGE_COPY: Record<Locale, HomePageCopy> = {
+	en: {
+		searchBadge: "Search",
+		searchTitle: "Find public posts",
+		searchQueryLabel: "Search query",
+		searchPlaceholder: "Title, caption, or content",
+		searchAction: "Search",
+		clearAction: "Clear",
+		homeLabel: "Home",
+		feedLabel: "Feed",
+		navCategoriesAria: "Homepage categories",
+		hashtagFilterLabel: "Hashtag filter",
+		authorFilterLabel: "Author filter",
+		dataUnavailableLabel: "Data unavailable",
+		noPublicPostsLabel: "No public posts",
+		headingImageFallbackLabel: "Heading image 1",
+		fallbackPostTitle: (postId) => `Public post ${postId}`,
+		unknownDate: "Unknown date",
+		unknownAuthor: "Unknown author",
+		publishedLabel: "Published",
+		openPostLabel: "Open post",
+		pageNumbersAria: "Page numbers",
+		previousAction: "Previous",
+		nextAction: "Next",
+		resultCount: (count) => `${count} matches`,
+		pageSummary: (page, totalPages) => (totalPages > 0 ? `Page ${page} of ${totalPages}` : `Page ${page}`),
+		noMatchSearchQuery: (value) => `Nothing matched the current search query: ${value}.`,
+		noMatchHashtag: (value) => `Nothing matched the current hashtag filter: ${value}.`,
+		noMatchSubcategory: (value) => `Nothing matched the current subcategory filter: ${value}.`,
+		noMatchAuthor: (value) => `Nothing matched the current author filter: @${value}.`,
+		noMatchCategory: (value) => `Nothing matched the current category filter: ${value}.`,
+		noMatchFallback: "Nothing matched the current public-post query.",
+		dbUnavailableError: "D1 binding `DB` is not available in this environment.",
+		loadFailedError: "Failed to load public posts.",
+	},
+	zh: {
+		searchBadge: "搜尋",
+		searchTitle: "搜尋公開文章",
+		searchQueryLabel: "搜尋內容",
+		searchPlaceholder: "標題、摘要或內容",
+		searchAction: "搜尋",
+		clearAction: "清除",
+		homeLabel: "主頁",
+		feedLabel: "動態",
+		navCategoriesAria: "首頁分類導覽",
+		hashtagFilterLabel: "Hashtag 篩選",
+		authorFilterLabel: "作者篩選",
+		dataUnavailableLabel: "資料暫時無法讀取",
+		noPublicPostsLabel: "沒有公開文章",
+		headingImageFallbackLabel: "標題圖片 1",
+		fallbackPostTitle: (postId) => `公開文章 ${postId}`,
+		unknownDate: "未知日期",
+		unknownAuthor: "未知作者",
+		publishedLabel: "發佈於",
+		openPostLabel: "閱讀文章",
+		pageNumbersAria: "頁碼",
+		previousAction: "上一頁",
+		nextAction: "下一頁",
+		resultCount: (count) => `${count} 個結果`,
+		pageSummary: (page, totalPages) => (totalPages > 0 ? `第 ${page} 頁，共 ${totalPages} 頁` : `第 ${page} 頁`),
+		noMatchSearchQuery: (value) => `沒有結果符合目前的搜尋關鍵字：${value}。`,
+		noMatchHashtag: (value) => `沒有結果符合目前的 Hashtag 篩選：${value}。`,
+		noMatchSubcategory: (value) => `沒有結果符合目前的子分類篩選：${value}。`,
+		noMatchAuthor: (value) => `沒有結果符合目前的作者篩選：@${value}。`,
+		noMatchCategory: (value) => `沒有結果符合目前的分類篩選：${value}。`,
+		noMatchFallback: "沒有結果符合目前的公開文章篩選。",
+		dbUnavailableError: "目前環境未提供 D1 `DB` 綁定。",
+		loadFailedError: "載入公開文章失敗。",
+	},
+	ja: {
+		searchBadge: "検索",
+		searchTitle: "公開記事を探す",
+		searchQueryLabel: "検索キーワード",
+		searchPlaceholder: "タイトル、要約、または本文",
+		searchAction: "検索",
+		clearAction: "クリア",
+		homeLabel: "ホーム",
+		feedLabel: "フィード",
+		navCategoriesAria: "ホームページのカテゴリ",
+		hashtagFilterLabel: "ハッシュタグ絞り込み",
+		authorFilterLabel: "投稿者絞り込み",
+		dataUnavailableLabel: "データを読み込めません",
+		noPublicPostsLabel: "公開記事はありません",
+		headingImageFallbackLabel: "見出し画像 1",
+		fallbackPostTitle: (postId) => `公開記事 ${postId}`,
+		unknownDate: "日付不明",
+		unknownAuthor: "投稿者不明",
+		publishedLabel: "公開日",
+		openPostLabel: "記事を開く",
+		pageNumbersAria: "ページ番号",
+		previousAction: "前へ",
+		nextAction: "次へ",
+		resultCount: (count) => `${count} 件`,
+		pageSummary: (page, totalPages) => (totalPages > 0 ? `${page} / ${totalPages} ページ` : `${page} ページ`),
+		noMatchSearchQuery: (value) => `現在の検索キーワード「${value}」に一致する記事はありません。`,
+		noMatchHashtag: (value) => `現在のハッシュタグ絞り込み「${value}」に一致する記事はありません。`,
+		noMatchSubcategory: (value) => `現在のサブカテゴリ絞り込み「${value}」に一致する記事はありません。`,
+		noMatchAuthor: (value) => `現在の投稿者絞り込み「@${value}」に一致する記事はありません。`,
+		noMatchCategory: (value) => `現在のカテゴリ絞り込み「${value}」に一致する記事はありません。`,
+		noMatchFallback: "現在の公開記事条件に一致する記事はありません。",
+		dbUnavailableError: "この環境では D1 の `DB` バインディングを利用できません。",
+		loadFailedError: "公開記事の読み込みに失敗しました。",
+	},
+};
 
 type HomePageProps = {
 	searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+async function resolveSelectedCountryCode(countryParam: string | string[] | undefined): Promise<PostCountryCode> {
+	const cookieStore = await cookies();
+	return resolvePostCountrySelection(countryParam, cookieStore.get(POST_COUNTRY_COOKIE_KEY)?.value);
+}
 
 type PreparedPostRow = {
 	post_id: number;
@@ -165,6 +313,10 @@ function serializeJsonLd(value: unknown): string {
 	return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
+function getHomePageCopy(locale: Locale): HomePageCopy {
+	return HOME_PAGE_COPY[locale];
+}
+
 function toSeoLabel(value: string | null): string | null {
 	if (!value) {
 		return null;
@@ -209,8 +361,18 @@ function readPageParam(value: string | string[] | undefined): number {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function readLocaleParam(value: string | string[] | undefined): Locale {
-	return readStringParam(value)?.toLowerCase() === "zh" ? "zh" : "en";
+function readLocaleParam(value: string | string[] | undefined, countryCode: PostCountryCode): Locale {
+	const rawLocale = readStringParam(value)?.toLowerCase();
+	if (rawLocale === "zh") {
+		return "zh";
+	}
+	if (rawLocale === "ja") {
+		return "ja";
+	}
+	if (rawLocale === "en") {
+		return "en";
+	}
+	return getPostCountryPageLocale(countryCode);
 }
 
 function readCategoryParam(value: string | string[] | undefined): string | null {
@@ -304,6 +466,35 @@ function buildSubcategoryHref(
 	countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE,
 ): string {
 	return buildPageHref(1, locale, categoryCode, subcategoryCode, hashtag, searchQuery, authorHandle, countryCode);
+}
+
+function buildNoResultsMessage(
+	locale: Locale,
+	filters: {
+		searchQuery: string | null;
+		hashtag: string | null;
+		subcategory: string | null;
+		author: string | null;
+		category: string | null;
+	},
+): string {
+	const copy = getHomePageCopy(locale);
+	if (filters.searchQuery) {
+		return copy.noMatchSearchQuery(filters.searchQuery);
+	}
+	if (filters.hashtag) {
+		return copy.noMatchHashtag(filters.hashtag);
+	}
+	if (filters.subcategory) {
+		return copy.noMatchSubcategory(filters.subcategory);
+	}
+	if (filters.author) {
+		return copy.noMatchAuthor(filters.author);
+	}
+	if (filters.category) {
+		return copy.noMatchCategory(filters.category);
+	}
+	return copy.noMatchFallback;
 }
 
 function getHomeSeoContext({
@@ -470,8 +661,8 @@ function getHomeSeoContext({
 
 export async function generateMetadata({ searchParams }: HomePageProps): Promise<Metadata> {
 	const resolvedSearchParams = (await searchParams) || {};
-	const locale = readLocaleParam(resolvedSearchParams.locale);
-	const countryCode = readPostCountryParam(resolvedSearchParams.country);
+	const countryCode = await resolveSelectedCountryCode(resolvedSearchParams.country);
+	const locale = readLocaleParam(resolvedSearchParams.locale, countryCode);
 	const categoryCode = readCategoryParam(resolvedSearchParams.category);
 	const subcategoryCode = readSubcategoryParam(resolvedSearchParams.subcategory);
 	const hashtag = readHashtagParam(resolvedSearchParams.hashtag);
@@ -503,7 +694,7 @@ export async function generateMetadata({ searchParams }: HomePageProps): Promise
 			title: seoContext.title,
 			description: seoContext.description,
 			siteName: SITE_NAME,
-			locale: locale === "zh" ? "zh_HK" : "en_US",
+			locale: locale === "zh" ? "zh_HK" : locale === "ja" ? "ja_JP" : "en_US",
 		},
 		twitter: {
 			card: "summary",
@@ -524,17 +715,18 @@ export async function generateMetadata({ searchParams }: HomePageProps): Promise
 	};
 }
 
-function formatDate(value: string | null): string {
+function formatDate(value: string | null, locale: Locale): string {
+	const copy = getHomePageCopy(locale);
 	if (!value) {
-		return "Unknown date";
+		return copy.unknownDate;
 	}
 
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) {
-		return "Unknown date";
+		return copy.unknownDate;
 	}
 
-	return date.toLocaleDateString("en-GB", {
+	return date.toLocaleDateString(locale === "zh" ? "zh-HK" : locale === "ja" ? "ja-JP" : "en-US", {
 		year: "numeric",
 		month: "short",
 		day: "numeric",
@@ -824,7 +1016,8 @@ function buildTaxonomy(rows: TaxonomyRow[]): TaxonomyCategory[] {
 	return categories;
 }
 
-function buildPostView(post: PreparedPostRow, assignments: PostAssignmentGroup[]): PreparedPostView {
+function buildPostView(post: PreparedPostRow, assignments: PostAssignmentGroup[], locale: Locale): PreparedPostView {
+	const copy = getHomePageCopy(locale);
 	const prepared = parsePrepareContent(post.prepare_content);
 	const keyLines = (prepared?.keyLines ?? [])
 		.map((line) => truncateText(line, 180))
@@ -858,7 +1051,7 @@ function buildPostView(post: PreparedPostRow, assignments: PostAssignmentGroup[]
 			truncateText(prepared?.title ?? null, 120) ??
 			truncateText(post.title, 120) ??
 			truncateText(prepared?.keyLines[0] ?? null, 120) ??
-			`Public post ${post.post_id}`,
+			copy.fallbackPostTitle(post.post_id),
 		eyebrow: truncateText(prepared?.eyebrow ?? null, 80),
 		subtitle: truncateText(prepared?.subtitle ?? null, 120),
 		footerLine,
@@ -867,7 +1060,7 @@ function buildPostView(post: PreparedPostRow, assignments: PostAssignmentGroup[]
 		hashtagsLocale: prepared?.hashtagsLocale ?? [],
 		headingHashtags,
 		hashtags,
-		authorName: post.author_name?.trim() || post.author_id?.trim() || "Unknown author",
+		authorName: post.author_name?.trim() || post.author_id?.trim() || copy.unknownAuthor,
 		authorHandle: post.author_id?.trim() || null,
 		createdAt: post.created_at,
 		assignments,
@@ -889,7 +1082,7 @@ async function loadHomePageData(
 		const db = (env as CloudflareEnv & { DB?: D1Database }).DB;
 		if (!db) {
 			return {
-				error: "D1 binding `DB` is not available in this environment.",
+				error: getHomePageCopy(locale).dbUnavailableError,
 				page: 1,
 				totalPages: 0,
 				totalPosts: 0,
@@ -1087,7 +1280,7 @@ async function loadHomePageData(
 			.all<TaxonomyRow>();
 
 		const assignmentMap = buildPostAssignments(assignmentRows);
-		const posts = postRows.map((row) => buildPostView(row, assignmentMap.get(row.post_id) ?? []));
+		const posts = postRows.map((row) => buildPostView(row, assignmentMap.get(row.post_id) ?? [], locale));
 
 		return {
 			error: null,
@@ -1099,7 +1292,7 @@ async function loadHomePageData(
 		};
 	} catch (error) {
 		return {
-			error: error instanceof Error ? error.message : "Failed to load public posts.",
+			error: error instanceof Error ? error.message : getHomePageCopy(locale).loadFailedError,
 			page: 1,
 			totalPages: 0,
 			totalPosts: 0,
@@ -1128,6 +1321,8 @@ function SearchPanel({
 	selectedCountry: PostCountryCode;
 	totalPosts: number;
 }) {
+	const copy = getHomePageCopy(locale);
+
 	return (
 		<div
 			className="rounded-[1.75rem] border p-5 shadow-sm"
@@ -1139,10 +1334,10 @@ function SearchPanel({
 		>
 			<div className="mb-4 flex items-end justify-between gap-4">
 				<div>
-					<p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--txt-3)]">Search</p>
-					<h2 className="mt-2 text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">Find public posts</h2>
+					<p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--txt-3)]">{copy.searchBadge}</p>
+					<h2 className="mt-2 text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">{copy.searchTitle}</h2>
 				</div>
-				<p className="text-right text-xs text-[color:var(--txt-3)]">{totalPosts} matches</p>
+				<p className="text-right text-xs text-[color:var(--txt-3)]">{copy.resultCount(totalPosts)}</p>
 			</div>
 			<form action="/" method="get" className="space-y-4">
 				{locale !== DEFAULT_LOCALE ? <input type="hidden" name="locale" value={locale} /> : null}
@@ -1153,14 +1348,14 @@ function SearchPanel({
 				{selectedAuthor ? <input type="hidden" name="author" value={selectedAuthor} /> : null}
 				<div>
 					<label htmlFor="homepage-search" className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">
-						Search query
+						{copy.searchQueryLabel}
 					</label>
 					<input
 						id="homepage-search"
 						name="q"
 						type="search"
 						defaultValue={selectedSearchQuery ?? ""}
-						placeholder="Title, caption, or content"
+						placeholder={copy.searchPlaceholder}
 						className="mt-3 w-full rounded-[1.15rem] border px-4 py-3 text-sm outline-none transition-colors focus:border-[color:var(--accent-1)]"
 						style={{
 							backgroundColor: "color-mix(in srgb, var(--cell-2) 92%, transparent)",
@@ -1179,7 +1374,7 @@ function SearchPanel({
 							color: "var(--accent-1)",
 						}}
 					>
-						Search
+						{copy.searchAction}
 					</button>
 					<Link
 						href={buildPageHref(1, locale, selectedCategory, selectedSubcategory, selectedHashtag, null, selectedAuthor, selectedCountry)}
@@ -1189,7 +1384,7 @@ function SearchPanel({
 							color: "var(--txt-1)",
 						}}
 					>
-						Clear
+						{copy.clearAction}
 					</Link>
 				</div>
 			</form>
@@ -1218,6 +1413,7 @@ function Pagination({
 	selectedAuthor: string | null;
 	selectedCountry: PostCountryCode;
 }) {
+	const copy = getHomePageCopy(locale);
 	const previousHref = buildPageHref(
 		Math.max(1, page - 1),
 		locale,
@@ -1264,10 +1460,7 @@ function Pagination({
 				borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)",
 			}}
 		>
-			<p className="text-sm text-[color:var(--txt-2)]">
-				Page <span className="font-semibold text-[color:var(--txt-1)]">{page}</span>
-				{totalPages > 0 ? ` of ${totalPages}` : ""}
-			</p>
+			<p className="text-sm text-[color:var(--txt-2)]">{copy.pageSummary(page, totalPages)}</p>
 			<div className="flex flex-wrap items-center justify-end gap-2">
 				{hasPrevious ? (
 					<Link
@@ -1275,11 +1468,11 @@ function Pagination({
 						className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 						style={{ borderColor: "var(--surface-border)", color: "var(--txt-1)" }}
 					>
-						Previous
+						{copy.previousAction}
 					</Link>
 				) : (
 					<span className="rounded-full border px-4 py-2 text-sm" style={{ borderColor: "var(--surface-border)", color: "var(--txt-3)" }}>
-						Previous
+						{copy.previousAction}
 					</span>
 				)}
 				{hasNext ? (
@@ -1288,15 +1481,15 @@ function Pagination({
 						className="rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--cell-3)]"
 						style={{ borderColor: "var(--surface-border)", color: "var(--txt-1)" }}
 					>
-						Next
+						{copy.nextAction}
 					</Link>
 				) : (
 					<span className="rounded-full border px-4 py-2 text-sm" style={{ borderColor: "var(--surface-border)", color: "var(--txt-3)" }}>
-						Next
+						{copy.nextAction}
 					</span>
 				)}
 				{pageItems.length > 0 ? (
-					<div className="flex flex-wrap items-center gap-2" aria-label="Page numbers">
+					<div className="flex flex-wrap items-center gap-2" aria-label={copy.pageNumbersAria}>
 						{pageItems.map((item) =>
 							item.type === "page" ? (
 								item.value === page ? (
@@ -1346,8 +1539,9 @@ function Pagination({
 
 export default async function HomePage({ searchParams }: HomePageProps) {
 	const resolvedSearchParams = (await searchParams) || {};
-	const locale = readLocaleParam(resolvedSearchParams.locale);
-	const selectedCountry = readPostCountryParam(resolvedSearchParams.country);
+	const selectedCountry = await resolveSelectedCountryCode(resolvedSearchParams.country);
+	const locale = readLocaleParam(resolvedSearchParams.locale, selectedCountry);
+	const copy = getHomePageCopy(locale);
 	const selectedCategory = readCategoryParam(resolvedSearchParams.category);
 	const selectedSubcategory = readSubcategoryParam(resolvedSearchParams.subcategory);
 	const selectedHashtag = readHashtagParam(resolvedSearchParams.hashtag);
@@ -1403,7 +1597,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		url: canonicalUrl,
 		name: seoContext.title,
 		description: collectionDescription,
-		inLanguage: locale === "zh" ? "zh-HK" : "en",
+		inLanguage: locale === "zh" ? "zh-HK" : locale === "ja" ? "ja-JP" : "en",
 		isPartOf: {
 			"@type": "WebSite",
 			"@id": `${SITE_URL}/#website`,
@@ -1532,7 +1726,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 					}}
 				>
 					<div className="flex flex-col gap-5">
-						<nav className="flex flex-wrap gap-2" aria-label="Homepage categories">
+						<nav className="flex flex-wrap gap-2" aria-label={copy.navCategoriesAria}>
 							<Link
 								href={buildPageHref(1, locale, null, null, selectedHashtag, selectedSearchQuery, selectedAuthor, selectedCountry)}
 								aria-current={selectedCategory ? undefined : "page"}
@@ -1547,7 +1741,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 									color: selectedCategory ? "var(--txt-1)" : "var(--accent-1)",
 								}}
 							>
-								Home
+								{copy.homeLabel}
 							</Link>
 							<Link
 								href="/feed"
@@ -1558,7 +1752,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 									color: "var(--txt-1)",
 								}}
 							>
-								Feed
+								{copy.feedLabel}
 							</Link>
 							{taxonomy.map((category) => (
 								<Link
@@ -1636,7 +1830,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							>
 								<div className="flex flex-wrap items-center justify-between gap-3">
 									<div>
-										<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">Hashtag filter</p>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">{copy.hashtagFilterLabel}</p>
 										<p className="mt-2 text-base font-semibold text-[color:var(--accent-1)]">{selectedHashtag}</p>
 									</div>
 									<Link
@@ -1647,7 +1841,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 											color: "var(--txt-1)",
 										}}
 									>
-										Clear
+										{copy.clearAction}
 									</Link>
 								</div>
 							</div>
@@ -1663,7 +1857,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 							>
 								<div className="flex flex-wrap items-center justify-between gap-3">
 									<div>
-										<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">Author filter</p>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">{copy.authorFilterLabel}</p>
 										<p className="mt-2 text-base font-semibold text-[color:var(--accent-1)]">@{selectedAuthor}</p>
 									</div>
 									<Link
@@ -1674,7 +1868,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 											color: "var(--txt-1)",
 										}}
 									>
-										Clear
+										{copy.clearAction}
 									</Link>
 								</div>
 							</div>
@@ -1717,7 +1911,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 									borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
 								}}
 							>
-								<p className="text-sm font-semibold uppercase tracking-[0.2em] text-[color:var(--accent-1)]">Data unavailable</p>
+								<p className="text-sm font-semibold uppercase tracking-[0.2em] text-[color:var(--accent-1)]">{copy.dataUnavailableLabel}</p>
 								<p className="mt-3 text-base leading-7 text-[color:var(--txt-2)]">{error}</p>
 							</section>
 						) : null}
@@ -1730,19 +1924,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 									borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
 								}}
 							>
-								<p className="text-sm font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">No public posts</p>
+								<p className="text-sm font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy.noPublicPostsLabel}</p>
 								<p className="mt-3 text-base leading-7 text-[color:var(--txt-2)]">
-									{selectedSearchQuery
-										? `Nothing matched the current search query: ${selectedSearchQuery}.`
-										: selectedHashtag
-											? `Nothing matched the current hashtag filter: ${selectedHashtag}.`
-												: selectedSubcategory
-													? `Nothing matched the current subcategory filter: ${selectedSubcategory}.`
-													: selectedAuthor
-														? `Nothing matched the current author filter: @${selectedAuthor}.`
-													: selectedCategory
-														? `Nothing matched the current category filter: ${selectedCategory}.`
-														: "Nothing matched the current public-post query."}
+									{buildNoResultsMessage(locale, {
+										searchQuery: selectedSearchQuery,
+										hashtag: selectedHashtag,
+										subcategory: selectedSubcategory,
+										author: selectedAuthor,
+										category: selectedCategory,
+									})}
 								</p>
 							</section>
 						) : null}
@@ -1777,7 +1967,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 											) : (
 												<div className="flex h-full items-end p-5">
 													<div>
-														<p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[color:var(--txt-3)]">Heading image 1</p>
+														<p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[color:var(--txt-3)]">{copy.headingImageFallbackLabel}</p>
 														<p className="mt-3 text-xl font-semibold leading-tight text-[color:var(--txt-1)]">{post.title}</p>
 													</div>
 												</div>
@@ -1880,9 +2070,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 										<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[color:var(--txt-3)]">
 											<span className="font-medium text-[color:var(--txt-1)]">{post.authorName}</span>
 											{post.authorHandle ? <span>@{post.authorHandle}</span> : null}
-											<span>Created {formatDate(post.createdAt)}</span>
+											<span>{copy.publishedLabel} {formatDate(post.createdAt, locale)}</span>
 										</div>
-										<span className="font-semibold text-[color:var(--accent-1)]">Open post</span>
+										<span className="font-semibold text-[color:var(--accent-1)]">{copy.openPostLabel}</span>
 									</div>
 								</article>
 							</Link>

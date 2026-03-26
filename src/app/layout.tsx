@@ -7,6 +7,7 @@ import { SiteHeader } from "./components/site-header";
 import { AppProviders } from "./providers";
 import ThemeToggle from "./components/theme-toggle";
 
+const APP_LOCALE_HEADER = "x-app-locale";
 const REQUEST_PATHNAME_HEADER = "x-paragify-pathname";
 const DEFAULT_HTML_LANG = "en";
 
@@ -75,11 +76,25 @@ function extractPostSlugFromPathname(pathname: string | null): string | null {
 	}
 }
 
+function normalizeAppLocaleToHtmlLang(value: string | null | undefined): string {
+	const normalized = value?.trim().toLowerCase() ?? "";
+	if (normalized === "zh") {
+		return "zh-HK";
+	}
+	if (normalized === "ja") {
+		return "ja-JP";
+	}
+	if (normalized === "en") {
+		return "en";
+	}
+	return normalizeHtmlLangTag(value);
+}
+
 async function resolveHtmlLang(): Promise<string> {
 	const requestHeaders = await headers();
 	const postSlug = extractPostSlugFromPathname(requestHeaders.get(REQUEST_PATHNAME_HEADER));
 	if (!postSlug) {
-		return DEFAULT_HTML_LANG;
+		return normalizeAppLocaleToHtmlLang(requestHeaders.get(APP_LOCALE_HEADER));
 	}
 
 	try {
@@ -104,12 +119,22 @@ async function resolveHtmlLang(): Promise<string> {
 	}
 }
 
+function readInitialAppLocale(value: string | null | undefined): "en" | "zh" | "ja" {
+	const normalized = value?.trim().toLowerCase() ?? "";
+	if (normalized === "zh" || normalized === "ja") {
+		return normalized;
+	}
+	return "en";
+}
+
 export default async function RootLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
+	const requestHeaders = await headers();
 	const htmlLang = await resolveHtmlLang();
+	const initialLocale = readInitialAppLocale(requestHeaders.get(APP_LOCALE_HEADER));
 
 	return (
 		<html lang={htmlLang}>
@@ -117,7 +142,7 @@ export default async function RootLayout({
 				<link rel="icon" href="/favicon.svg" type="image/svg+xml"></link>
 			</head>
 			<body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-				<AppProviders>
+				<AppProviders initialLocale={initialLocale}>
 					<SiteHeader />
 					{children}
 					<ThemeToggle />

@@ -5,12 +5,16 @@ import {
 	UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import { getFeedAvatarInitials } from "@/lib/feed-posts";
+import { POST_COUNTRY_COOKIE_KEY, readPostCountryParam } from "@/lib/post-country-filter";
 import { SiteCountrySelector } from "./site-country-selector";
 
 export async function SiteHeader() {
+	const cookieStore = await cookies();
+	const selectedCountry = readPostCountryParam(cookieStore.get(POST_COUNTRY_COOKIE_KEY)?.value);
 	const session = await getServerSession(authOptions);
 	const sessionUser = session?.user as
 		| {
@@ -39,7 +43,7 @@ export async function SiteHeader() {
 			<div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
 				<Link href="/" className="rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-1)]">
 					<span className="block text-xl font-semibold tracking-tight text-[color:var(--txt-1)]">Paragify</span>
-					<p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--txt-3)]">Home + Feed</p>
+					<p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--txt-3)]">Public Posts</p>
 				</Link>
 				<div className="flex flex-wrap items-center justify-end gap-3">
 					<Link
@@ -50,7 +54,6 @@ export async function SiteHeader() {
 					>
 						<NewspaperIcon className="h-5 w-5" aria-hidden="true" />
 					</Link>
-					<SiteCountrySelector />
 					{sessionUser ? (
 						<>
 							<Link
@@ -98,6 +101,7 @@ export async function SiteHeader() {
 					>
 						<PlusIcon className="h-5 w-5" aria-hidden="true" />
 					</Link>
+					<SiteCountrySelector initialCountry={selectedCountry} />
 				</div>
 			</div>
 		</header>

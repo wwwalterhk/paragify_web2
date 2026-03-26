@@ -2,11 +2,14 @@
 
 import { CheckIcon } from "@heroicons/react/20/solid";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import {
 	DEFAULT_POST_COUNTRY_CODE,
 	getPostCountryFlag,
-	getPostCountryLabel,
+	getPostCountryMessageVariant,
+	getPostCountryPageLocale,
+	POST_COUNTRY_COOKIE_KEY,
 	POST_COUNTRY_FILTER_OPTIONS,
 	readPostCountryParam,
 	type PostCountryCode,
@@ -26,6 +29,12 @@ function buildCountrySelectorHref(
 	}
 
 	nextParams.delete("page");
+	const nextLocale = getPostCountryPageLocale(countryCode);
+	if (nextLocale === "en") {
+		nextParams.delete("locale");
+	} else {
+		nextParams.set("locale", nextLocale);
+	}
 	if (countryCode === DEFAULT_POST_COUNTRY_CODE) {
 		nextParams.delete("country");
 	} else {
@@ -36,17 +45,24 @@ function buildCountrySelectorHref(
 	return query ? `/?${query}` : "/";
 }
 
-export function SiteCountrySelector() {
+type SiteCountrySelectorProps = {
+	initialCountry?: PostCountryCode;
+};
+
+export function SiteCountrySelector({ initialCountry = DEFAULT_POST_COUNTRY_CODE }: SiteCountrySelectorProps) {
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	const t = useTranslations("siteHeader.countrySelector.variants");
 	const menuId = useId();
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [isPending, startTransition] = useTransition();
 	const [isOpen, setIsOpen] = useState(false);
-	const selectedCountry = readPostCountryParam(searchParams.get("country") ?? undefined);
+	const selectedCountryParam = searchParams.get("country") ?? undefined;
+	const selectedCountry = selectedCountryParam?.trim() ? readPostCountryParam(selectedCountryParam) : initialCountry;
+	const messageVariant = getPostCountryMessageVariant(selectedCountry);
 	const selectedFlag = getPostCountryFlag(selectedCountry);
-	const selectedLabel = getPostCountryLabel(selectedCountry);
+	const selectedLabel = t(`${messageVariant}.countries.${selectedCountry}`);
 
 	useEffect(() => {
 		if (!isOpen) {
@@ -77,7 +93,7 @@ export function SiteCountrySelector() {
 		<div ref={containerRef} className="relative">
 			<button
 				type="button"
-				aria-label={`Selected country: ${selectedLabel}`}
+				aria-label={t(`${messageVariant}.triggerLabel`, { country: selectedLabel })}
 				aria-haspopup="menu"
 				aria-expanded={isOpen}
 				aria-controls={menuId}
@@ -103,7 +119,7 @@ export function SiteCountrySelector() {
 				<div
 					id={menuId}
 					role="menu"
-					aria-label="Select post country filter"
+					aria-label={t(`${messageVariant}.menuLabel`)}
 					className="absolute right-0 top-[calc(100%+0.65rem)] z-20 min-w-[15rem] overflow-hidden rounded-[1.1rem] border p-2 shadow-lg"
 					style={{
 						backgroundColor: "color-mix(in srgb, var(--cell-1) 98%, transparent)",
@@ -112,11 +128,12 @@ export function SiteCountrySelector() {
 					}}
 				>
 					<div className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--txt-3)]">
-						Country
+						{t(`${messageVariant}.title`)}
 					</div>
 					<div className="flex flex-col gap-1">
 						{POST_COUNTRY_FILTER_OPTIONS.map((option) => {
 							const isSelected = option.code === selectedCountry;
+							const optionLabel = t(`${messageVariant}.countries.${option.code}`);
 							return (
 								<button
 									key={option.code}
@@ -125,6 +142,7 @@ export function SiteCountrySelector() {
 									aria-checked={isSelected}
 									onClick={() => {
 										const nextHref = buildCountrySelectorHref(pathname, new URLSearchParams(searchParams.toString()), option.code);
+										document.cookie = `${POST_COUNTRY_COOKIE_KEY}=${option.code}; path=/; SameSite=Lax`;
 										setIsOpen(false);
 										startTransition(() => {
 											router.push(nextHref);
@@ -142,7 +160,7 @@ export function SiteCountrySelector() {
 										<span className="text-base leading-none" aria-hidden="true">
 											{option.flag}
 										</span>
-										<span className="text-sm font-medium">{option.label}</span>
+										<span className="text-sm font-medium">{optionLabel}</span>
 									</span>
 									{isSelected ? <CheckIcon className="h-4 w-4" aria-hidden="true" /> : null}
 								</button>

@@ -103,5 +103,71 @@
     "auto": "自動",
     "light": "日間",
     "dark": "夜間"
+  },
+  "siteHeader": {
+    "countrySelector": {
+      "variants": {
+        "en-us": {
+          "title": "Country",
+          "menuLabel": "Select country",
+          "triggerLabel": "Selected country: {country}",
+          "countries": {
+            "us": "United States",
+            "uk": "United Kingdom",
+            "hk": "Hong Kong",
+            "tw": "Taiwan",
+            "jp": "Japan"
+          }
+        },
+        "en-uk": {
+          "title": "Country",
+          "menuLabel": "Choose country",
+          "triggerLabel": "Selected country: {country}",
+          "countries": {
+            "us": "United States",
+            "uk": "United Kingdom",
+            "hk": "Hong Kong",
+            "tw": "Taiwan",
+            "jp": "Japan"
+          }
+        },
+        "zh-hk": {
+          "title": "地區",
+          "menuLabel": "選擇國家／地區",
+          "triggerLabel": "目前地區：{country}",
+          "countries": {
+            "us": "美國",
+            "uk": "英國",
+            "hk": "香港",
+            "tw": "台灣",
+            "jp": "日本"
+          }
+        },
+        "zh-tw": {
+          "title": "國家／地區",
+          "menuLabel": "選擇國家／地區",
+          "triggerLabel": "目前國家／地區：{country}",
+          "countries": {
+            "us": "美國",
+            "uk": "英國",
+            "hk": "香港",
+            "tw": "臺灣",
+            "jp": "日本"
+          }
+        },
+        "ja-jp": {
+          "title": "国・地域",
+          "menuLabel": "国・地域を選択",
+          "triggerLabel": "選択中の国・地域: {country}",
+          "countries": {
+            "us": "アメリカ合衆国",
+            "uk": "イギリス",
+            "hk": "香港",
+            "tw": "台湾",
+            "jp": "日本"
+          }
+        }
+      }
+    }
   }
 }

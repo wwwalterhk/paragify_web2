@@ -1,14 +1,13 @@
 import Link from "next/link";
 
-type Locale = "en" | "zh";
+type Locale = "en" | "zh" | "ja";
 
 const SITE_NAME = "Paragify";
 
 export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 	const year = new Date().getFullYear();
-	const isEn = locale === "en";
-	const localePrefix = `/${locale}`;
-	const t = isEn
+	const localePrefix = locale === "zh" ? "/zh" : "/en";
+	const t = locale === "en"
 		? {
 				home: "Home",
 				feed: "Feed",
@@ -19,7 +18,18 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 				accountDeletion: "Account Deletion",
 				rights: "All rights reserved.",
 		  }
-		: {
+		: locale === "ja"
+			? {
+					home: "ホーム",
+					feed: "フィード",
+					create: "投稿",
+					tools: "ツール",
+					privacy: "プライバシーポリシー",
+					terms: "利用規約",
+					accountDeletion: "アカウント削除",
+					rights: "All rights reserved.",
+			  }
+			: {
 				home: "首頁",
 				feed: "Feed",
 				create: "發佈",
