@@ -666,13 +666,14 @@ function renderInlineHashtagLinks(value: string, locale: UiLocale, countryCode: 
 			if (start > cursor) {
 				children.push(line.slice(cursor, start));
 			}
-				children.push(
-					<Link
-						key={`hashtag-${lineIndex}-${matchIndex}-${hashtag}`}
-						href={buildHashtagHref(hashtag, locale, countryCode)}
-						className="font-semibold text-[color:var(--accent-1)] underline decoration-transparent underline-offset-4 transition hover:decoration-current"
-					>
-						{hashtag}
+			children.push(
+				<Link
+					key={`hashtag-${lineIndex}-${matchIndex}-${hashtag}`}
+					href={buildHashtagHref(hashtag, locale, countryCode)}
+					className="mx-0.5 inline-flex min-h-8 items-center rounded-[0.85rem] px-2.5 py-0 align-middle font-semibold text-[color:var(--accent-1)] underline decoration-transparent underline-offset-4 transition hover:bg-[color:var(--cell-3)] hover:decoration-current focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+					style={{ outlineColor: "var(--accent-1)" }}
+				>
+					{hashtag}
 				</Link>,
 			);
 			cursor = start + hashtag.length;
@@ -719,6 +720,10 @@ function buildTagStyle(): CSSProperties {
 		borderColor: "color-mix(in srgb, var(--accent-2) 28%, transparent)",
 		backgroundColor: "color-mix(in srgb, var(--accent-2) 12%, transparent)",
 	};
+}
+
+function buildTagClassName() {
+	return "inline-flex min-h-8 items-center justify-center rounded-full border px-4 py-1 text-sm font-medium transition-opacity hover:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
 }
 
 function buildSectionStyle(): CSSProperties {
@@ -1256,8 +1261,8 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 													<Link
 														key={`hero-heading-${tag}`}
 														href={buildHashtagHref(tag, uiLocale, selectedCountry)}
-														className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
-														style={buildTagStyle()}
+														className={buildTagClassName()}
+														style={{ ...buildTagStyle(), outlineColor: "var(--accent-2)" }}
 													>
 														{tag}
 													</Link>
@@ -1337,8 +1342,8 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 															<Link
 																key={`${index}-${tag}`}
 																href={buildHashtagHref(tag, uiLocale, selectedCountry)}
-																className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
-																style={buildTagStyle()}
+																className={buildTagClassName()}
+																style={{ ...buildTagStyle(), outlineColor: "var(--accent-2)" }}
 															>
 																{tag}
 															</Link>
@@ -1372,11 +1377,12 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 												<Link
 													key={`locale-tag-${tag}`}
 													href={buildHashtagHref(tag, uiLocale, selectedCountry)}
-													className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
+													className={buildTagClassName()}
 													style={{
 														color: "var(--accent-1)",
 														borderColor: "color-mix(in srgb, var(--accent-1) 28%, transparent)",
 														backgroundColor: "color-mix(in srgb, var(--accent-1) 12%, transparent)",
+														outlineColor: "var(--accent-1)",
 													}}
 												>
 													{tag}
@@ -1450,8 +1456,8 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 												<Link
 													key={`aside-#${tag}`}
 													href={buildHashtagHref(`#${tag}`, uiLocale, selectedCountry)}
-													className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
-													style={buildTagStyle()}
+													className={buildTagClassName()}
+													style={{ ...buildTagStyle(), outlineColor: "var(--accent-2)" }}
 												>
 													#{tag}
 												</Link>
