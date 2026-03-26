@@ -1,11 +1,19 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties, JSX } from "react";
 import { PostDetailComments, type PostComment } from "@/app/post/[locale]/[slug]/post-detail-comments";
 import { SiteFooter } from "@/app/components/site-footer";
 import PostViewTracker from "@/app/p/[slug]/PostViewTracker";
+import {
+	DEFAULT_POST_COUNTRY_CODE,
+	getPostCountryPageLocale,
+	POST_COUNTRY_COOKIE_KEY,
+	readPostCountryParam,
+	type PostCountryCode,
+} from "@/lib/post-country-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +21,12 @@ const PRIMARY_CDN_ORIGIN = "https://cdn.paragify.com";
 const DEFAULT_SITE_URL = "http://localhost:3000";
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).replace(/\/+$/, "");
 const SITE_NAME = "Paragify";
-const DEFAULT_LOCALE: Locale = "en";
+const DEFAULT_UI_LOCALE: UiLocale = "en";
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
 
 type DbBindings = CloudflareEnv & { DB?: D1Database };
-type Locale = "en" | "zh";
+type ArticleLocale = "en" | "zh";
+type UiLocale = "en" | "zh" | "ja";
 
 type PageProps = {
 	params: Promise<{ slug: string }>;
@@ -95,7 +104,7 @@ type PreparedContentView = {
 };
 
 const copy: Record<
-	Locale,
+	UiLocale,
 	{
 		back: string;
 		published: string;
@@ -130,10 +139,25 @@ const copy: Record<
 		relatedReading: "相關文章",
 		noRelatedReading: "暫時未有相關文章。",
 	},
+	ja: {
+		back: "ホームへ戻る",
+		published: "公開日",
+		noContent: "この投稿には、まだ整形済みの記事コンテンツがありません。",
+		articleMeta: "記事情報",
+		category: "カテゴリ",
+		subcategory: "サブカテゴリ",
+		tags: "タグ",
+		relatedReading: "関連記事",
+		noRelatedReading: "関連記事はまだありません。",
+	},
 };
 
-function normalizeLocale(value: string | null): Locale {
+function normalizeArticleLocale(value: string | null): ArticleLocale {
 	return value?.trim().toLowerCase() === "zh" ? "zh" : "en";
+}
+
+function resolveUiCountryCode(cookieValue: string | null | undefined): PostCountryCode {
+	return readPostCountryParam(cookieValue ?? undefined);
 }
 
 function toAbsoluteUrl(path: string): string {
@@ -146,37 +170,59 @@ function getPostSlugRef(post: Pick<ArticleRow, "post_slug" | "post_id">): string
 	return slug || String(post.post_id);
 }
 
-function formatPublishDate(value: string | null, locale: Locale): string {
+function formatPublishDate(value: string | null, locale: UiLocale): string {
 	if (!value) {
-		return locale === "en" ? "Unknown date" : "未知日期";
+		return locale === "ja" ? "日付不明" : locale === "zh" ? "未知日期" : "Unknown date";
 	}
 
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) {
-		return locale === "en" ? "Unknown date" : "未知日期";
+		return locale === "ja" ? "日付不明" : locale === "zh" ? "未知日期" : "Unknown date";
 	}
 
-	return date.toLocaleDateString(locale === "en" ? "en-US" : "zh-HK", {
+	return date.toLocaleDateString(locale === "ja" ? "ja-JP" : locale === "zh" ? "zh-HK" : "en-US", {
 		year: "numeric",
 		month: "short",
 		day: "numeric",
 	});
 }
 
-function buildHashtagHref(hashtag: string, locale: Locale): string {
+function buildHomeHref(locale: UiLocale, countryCode: PostCountryCode): string {
 	const params = new URLSearchParams();
-	if (locale !== DEFAULT_LOCALE) {
+	if (locale !== DEFAULT_UI_LOCALE) {
 		params.set("locale", locale);
+	}
+	if (countryCode !== DEFAULT_POST_COUNTRY_CODE) {
+		params.set("country", countryCode);
+	}
+	const query = params.toString();
+	return query ? `/?${query}` : "/";
+}
+
+function buildHashtagHref(hashtag: string, locale: UiLocale, countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE): string {
+	const params = new URLSearchParams();
+	if (locale !== DEFAULT_UI_LOCALE) {
+		params.set("locale", locale);
+	}
+	if (countryCode !== DEFAULT_POST_COUNTRY_CODE) {
+		params.set("country", countryCode);
 	}
 	params.set("hashtag", hashtag);
 	return `/?${params.toString()}`;
 }
 
-function buildAuthorPostsHref(authorHandle: string, locale: Locale): string {
+function buildAuthorPostsHref(
+	authorHandle: string,
+	locale: UiLocale,
+	countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE,
+): string {
 	const normalizedHandle = authorHandle.trim().replace(/^@+/, "").toLowerCase();
 	const params = new URLSearchParams();
-	if (locale !== DEFAULT_LOCALE) {
+	if (locale !== DEFAULT_UI_LOCALE) {
 		params.set("locale", locale);
+	}
+	if (countryCode !== DEFAULT_POST_COUNTRY_CODE) {
+		params.set("country", countryCode);
 	}
 	params.set("author", normalizedHandle);
 	return `/?${params.toString()}`;
@@ -519,11 +565,11 @@ function buildPublicPostHref(post: Pick<ArticleRow | RelatedPostRow, "post_slug"
 	return `/p/${encodeURIComponent(getPostSlugRef(post))}`;
 }
 
-function buildRelatedFallbackTitle(locale: Locale, postId: number): string {
-	return locale === "en" ? `Post ${postId}` : `文章 ${postId}`;
+function buildRelatedFallbackTitle(locale: UiLocale, postId: number): string {
+	return locale === "ja" ? `投稿 ${postId}` : locale === "zh" ? `文章 ${postId}` : `Post ${postId}`;
 }
 
-function buildRelatedPostView(row: RelatedPostRow, locale: Locale): RelatedPostView {
+function buildRelatedPostView(row: RelatedPostRow, locale: UiLocale): RelatedPostView {
 	const prepared = parsePrepareContent(row.prepare_content);
 	const fallbackTitle =
 		trimForMeta(stripHashtags(row.caption), locale === "en" ? 70 : 42) ?? buildRelatedFallbackTitle(locale, row.post_id);
@@ -545,7 +591,7 @@ function buildRelatedPostView(row: RelatedPostRow, locale: Locale): RelatedPostV
 	};
 }
 
-async function loadRelatedPosts(db: D1Database, postId: number, locale: Locale): Promise<RelatedPostView[]> {
+async function loadRelatedPosts(db: D1Database, postId: number, locale: UiLocale): Promise<RelatedPostView[]> {
 	const primaryCategoryId = await loadPrimaryCategoryId(db, postId);
 	if (!primaryCategoryId) {
 		return [];
@@ -606,7 +652,7 @@ async function loadRelatedPosts(db: D1Database, postId: number, locale: Locale):
 	return (result.results ?? []).map((row) => buildRelatedPostView(row, locale));
 }
 
-function renderInlineHashtagLinks(value: string, locale: Locale) {
+function renderInlineHashtagLinks(value: string, locale: UiLocale, countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE) {
 	const lines = value.split("\n");
 
 	return lines.map((line, lineIndex) => {
@@ -620,13 +666,13 @@ function renderInlineHashtagLinks(value: string, locale: Locale) {
 			if (start > cursor) {
 				children.push(line.slice(cursor, start));
 			}
-			children.push(
-				<Link
-					key={`hashtag-${lineIndex}-${matchIndex}-${hashtag}`}
-					href={buildHashtagHref(hashtag, locale)}
-					className="font-semibold text-[color:var(--accent-1)] underline decoration-transparent underline-offset-4 transition hover:decoration-current"
-				>
-					{hashtag}
+				children.push(
+					<Link
+						key={`hashtag-${lineIndex}-${matchIndex}-${hashtag}`}
+						href={buildHashtagHref(hashtag, locale, countryCode)}
+						className="font-semibold text-[color:var(--accent-1)] underline decoration-transparent underline-offset-4 transition hover:decoration-current"
+					>
+						{hashtag}
 				</Link>,
 			);
 			cursor = start + hashtag.length;
@@ -649,14 +695,20 @@ function renderInlineHashtagLinks(value: string, locale: Locale) {
 	});
 }
 
-function renderTextWithLineBreaks(value: string | null, className: string, locale: Locale, style?: CSSProperties) {
+function renderTextWithLineBreaks(
+	value: string | null,
+	className: string,
+	locale: UiLocale,
+	countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE,
+	style?: CSSProperties,
+) {
 	if (!value) {
 		return null;
 	}
 
 	return (
 		<p className={className} style={style}>
-			{renderInlineHashtagLinks(value, locale)}
+			{renderInlineHashtagLinks(value, locale, countryCode)}
 		</p>
 	);
 }
@@ -726,7 +778,12 @@ function buildSeoTopicNames(prepared: PreparedContentView | null): string[] {
 	return Array.from(topicSource).slice(0, 8);
 }
 
-function renderHeadingImageSection(image: PreparedHeadingImage | null, title: string, locale: Locale) {
+function renderHeadingImageSection(
+	image: PreparedHeadingImage | null,
+	title: string,
+	locale: UiLocale,
+	countryCode: PostCountryCode = DEFAULT_POST_COUNTRY_CODE,
+) {
 	if (!image?.url) {
 		return null;
 	}
@@ -750,7 +807,7 @@ function renderHeadingImageSection(image: PreparedHeadingImage | null, title: st
 				<div className="min-w-0">
 					{image.heading ? <h2 className="text-2xl font-semibold tracking-tight text-[color:var(--txt-1)]">{image.heading}</h2> : null}
 					{image.description
-						? renderTextWithLineBreaks(image.description, "mt-4 whitespace-pre-line text-lg leading-8", locale, {
+						? renderTextWithLineBreaks(image.description, "mt-4 whitespace-pre-line text-lg leading-8", locale, countryCode, {
 								color: "var(--txt-2)",
 						  })
 						: null}
@@ -763,7 +820,7 @@ function renderHeadingImageSection(image: PreparedHeadingImage | null, title: st
 function buildArticleSeoSummary(
 	article: Pick<ArticleRow, "post_id" | "title" | "caption" | "author_id">,
 	prepared: PreparedContentView | null,
-	locale: Locale,
+	locale: ArticleLocale,
 ) {
 	const paragraphText = prepared
 		? prepared.paragraphs
@@ -875,7 +932,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 		};
 	}
 
-	const locale = normalizeLocale(article.locale);
+	const locale = normalizeArticleLocale(article.locale);
 	const prepared = parsePrepareContent(article.prepare_content);
 	const seoSummary = buildArticleSeoSummary(article, prepared, locale);
 	const authorName = article.author_name?.trim() || article.author_id?.trim() || `user${article.post_id}`;
@@ -953,21 +1010,24 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 		notFound();
 	}
 
-	const locale = normalizeLocale(article.locale);
-	const t = copy[locale];
+	const articleLocale = normalizeArticleLocale(article.locale);
+	const cookieStore = await cookies();
+	const selectedCountry = resolveUiCountryCode(cookieStore.get(POST_COUNTRY_COOKIE_KEY)?.value);
+	const uiLocale = getPostCountryPageLocale(selectedCountry);
+	const t = copy[uiLocale];
 	const prepared = parsePrepareContent(article.prepare_content);
 	const authorName = article.author_name?.trim() || article.author_id?.trim() || `user${article.post_id}`;
 	const authorHandle = article.author_id?.trim() || null;
-	const authorPostsHref = authorHandle ? buildAuthorPostsHref(authorHandle, locale) : null;
+	const authorPostsHref = authorHandle ? buildAuthorPostsHref(authorHandle, uiLocale, selectedCountry) : null;
 	const title = prepared?.title ?? article.title?.trim() ?? `Post ${article.post_id}`;
 	const heroImage = prepared?.headingImages.find((image) => image.slot === 1) ?? null;
 	const heroImageUrl = heroImage?.url ?? prepared?.coverPageUrl ?? null;
 	const secondaryHeadingImage = prepared?.headingImages.find((image) => image.slot === 2) ?? null;
 	const fallbackCaption = stripHashtags(article.caption);
 	const comments = await loadPostComments(db, article.post_id);
-	const relatedPosts = await loadRelatedPosts(db, article.post_id, locale);
+	const relatedPosts = await loadRelatedPosts(db, article.post_id, uiLocale);
 	const canonicalUrl = toAbsoluteUrl(`/p/${encodeURIComponent(getPostSlugRef(article))}`);
-	const seoSummary = buildArticleSeoSummary(article, prepared, locale);
+	const seoSummary = buildArticleSeoSummary(article, prepared, articleLocale);
 	const primaryImageUrl = getPrimarySeoImageUrl(prepared);
 	const seoTopics = buildSeoTopicNames(prepared);
 	const articleWordCount = seoSummary.articleBody ? estimateArticleWordCount(seoSummary.articleBody) : undefined;
@@ -1010,7 +1070,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 		description: seoSummary.description,
 		articleBody: seoSummary.articleBody || undefined,
 		url: canonicalUrl,
-		inLanguage: locale === "en" ? "en" : "zh-HK",
+		inLanguage: articleLocale === "en" ? "en" : "zh-HK",
 		datePublished: article.created_at || undefined,
 		dateModified: article.updated_at || article.created_at || undefined,
 		wordCount: articleWordCount,
@@ -1057,12 +1117,12 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 	};
 	const relatedItemListJsonLd =
 		relatedPosts.length > 0
-			? {
-					"@context": "https://schema.org",
-					"@type": "ItemList",
-					"@id": `${canonicalUrl}#related`,
-					name: copy[locale].relatedReading,
-					itemListElement: relatedPosts.map((post, index) => ({
+				? {
+						"@context": "https://schema.org",
+						"@type": "ItemList",
+						"@id": `${canonicalUrl}#related`,
+						name: copy[uiLocale].relatedReading,
+						itemListElement: relatedPosts.map((post, index) => ({
 						"@type": "ListItem",
 						position: index + 1,
 						url: toAbsoluteUrl(post.href),
@@ -1082,7 +1142,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 				) : null}
 				<div className="mb-6">
 					<Link
-						href="/"
+						href={buildHomeHref(uiLocale, selectedCountry)}
 						className="inline-flex items-center rounded-full border px-4 py-2 text-sm font-semibold transition-colors hover:bg-[color:var(--cell-3)]"
 						style={{
 							borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
@@ -1125,7 +1185,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 												<p className="text-sm font-semibold text-[color:var(--txt-1)]">{authorName}</p>
 												<p className="mt-1 text-sm text-[color:var(--txt-3)]">
 													{authorHandle ? `@${authorHandle} · ` : ""}
-													{t.published} {formatPublishDate(article.created_at, locale)}
+													{t.published} {formatPublishDate(article.created_at, uiLocale)}
 												</p>
 											</div>
 										</Link>
@@ -1148,7 +1208,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 												<p className="text-sm font-semibold text-[color:var(--txt-1)]">{authorName}</p>
 												<p className="mt-1 text-sm text-[color:var(--txt-3)]">
 													{authorHandle ? `@${authorHandle} · ` : ""}
-													{t.published} {formatPublishDate(article.created_at, locale)}
+													{t.published} {formatPublishDate(article.created_at, uiLocale)}
 												</p>
 											</div>
 										</div>
@@ -1185,7 +1245,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 										<h1 className="mt-3 text-4xl font-semibold tracking-tight text-[color:var(--txt-1)] sm:text-5xl">{title}</h1>
 
 										{prepared?.subtitle
-											? renderTextWithLineBreaks(prepared.subtitle, "mt-4 text-lg leading-8", locale, {
+											? renderTextWithLineBreaks(prepared.subtitle, "mt-4 text-lg leading-8", uiLocale, selectedCountry, {
 													color: "var(--txt-2)",
 											  })
 											: null}
@@ -1195,7 +1255,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 												{prepared.headingHashtags.map((tag) => (
 													<Link
 														key={`hero-heading-${tag}`}
-														href={buildHashtagHref(tag, locale)}
+														href={buildHashtagHref(tag, uiLocale, selectedCountry)}
 														className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
 														style={buildTagStyle()}
 													>
@@ -1206,13 +1266,13 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 										) : null}
 
 										{prepared?.footerLine
-											? renderTextWithLineBreaks(prepared.footerLine, "mt-4 text-base font-medium leading-7", locale, {
+											? renderTextWithLineBreaks(prepared.footerLine, "mt-4 text-base font-medium leading-7", uiLocale, selectedCountry, {
 													color: "var(--txt-2)",
 											  })
 											: null}
 									</div>
 
-									{heroImage ? renderHeadingImageSection(heroImage, title, locale) : null}
+									{heroImage ? renderHeadingImageSection(heroImage, title, uiLocale, selectedCountry) : null}
 
 									{prepared?.keyLines.length ? (
 										<div
@@ -1227,7 +1287,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 										</div>
 									) : null}
 
-									{renderHeadingImageSection(secondaryHeadingImage, title, locale)}
+									{renderHeadingImageSection(secondaryHeadingImage, title, uiLocale, selectedCountry)}
 								</div>
 
 								<div className="mt-10 space-y-4">
@@ -1249,9 +1309,15 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 														<figcaption className="px-2 pb-2 pt-4">
 															{paragraph.heading ? <p className="text-xl font-semibold text-[color:var(--txt-1)]">{paragraph.heading}</p> : null}
 															{paragraph.content
-																? renderTextWithLineBreaks(paragraph.content, "mt-3 whitespace-pre-line text-base leading-8", locale, {
+																? renderTextWithLineBreaks(
+																		paragraph.content,
+																		"mt-3 whitespace-pre-line text-base leading-8",
+																		uiLocale,
+																		selectedCountry,
+																		{
 																		color: "var(--txt-2)",
-																  })
+																  },
+																  )
 																: null}
 														</figcaption>
 													) : null}
@@ -1270,7 +1336,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 														{paragraph.hashtags.map((tag) => (
 															<Link
 																key={`${index}-${tag}`}
-																href={buildHashtagHref(tag, locale)}
+																href={buildHashtagHref(tag, uiLocale, selectedCountry)}
 																className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
 																style={buildTagStyle()}
 															>
@@ -1292,7 +1358,8 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 												{renderTextWithLineBreaks(
 													paragraph.content,
 													`${paragraph.heading ? "mt-4 " : ""}whitespace-pre-line text-lg leading-8`,
-													locale,
+													uiLocale,
+													selectedCountry,
 													{ color: "var(--txt-2)" },
 												)}
 											</section>
@@ -1304,7 +1371,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 											{prepared.hashtagsLocale.map((tag) => (
 												<Link
 													key={`locale-tag-${tag}`}
-													href={buildHashtagHref(tag, locale)}
+													href={buildHashtagHref(tag, uiLocale, selectedCountry)}
 													className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
 													style={{
 														color: "var(--accent-1)",
@@ -1318,15 +1385,15 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 										</div>
 									) : null}
 
-									{!prepared && fallbackCaption ? (
-										<section
-											className="rounded-[1.75rem] border px-5 py-5 sm:px-6 sm:py-6"
-											style={buildSectionStyle()}
-										>
-											{renderTextWithLineBreaks(fallbackCaption, "whitespace-pre-line text-lg leading-8", locale, {
+										{!prepared && fallbackCaption ? (
+											<section
+												className="rounded-[1.75rem] border px-5 py-5 sm:px-6 sm:py-6"
+												style={buildSectionStyle()}
+											>
+												{renderTextWithLineBreaks(fallbackCaption, "whitespace-pre-line text-lg leading-8", uiLocale, selectedCountry, {
 												color: "var(--txt-2)",
 											})}
-										</section>
+											</section>
 									) : null}
 
 									{!prepared && !fallbackCaption ? (
@@ -1342,7 +1409,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 						</article>
 
 						<div id="comments" className="scroll-mt-24">
-							<PostDetailComments locale={locale} postId={article.post_id} initialComments={comments} />
+							<PostDetailComments locale={uiLocale} postId={article.post_id} initialComments={comments} />
 						</div>
 					</div>
 
@@ -1354,35 +1421,35 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 								borderColor: "color-mix(in srgb, var(--surface-border) 84%, transparent)",
 								boxShadow: "var(--shadow-elev-1)",
 							}}
-						>
-							<p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--txt-3)]">
-								{copy[locale].articleMeta}
-							</p>
+							>
+								<p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--txt-3)]">
+									{copy[uiLocale].articleMeta}
+								</p>
 							<div className="mt-4 space-y-4 text-sm text-[color:var(--txt-2)]">
 								<div>
 									<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{t.published}</p>
-									<p className="mt-2 text-base font-semibold text-[color:var(--txt-1)]">{formatPublishDate(article.created_at, locale)}</p>
+									<p className="mt-2 text-base font-semibold text-[color:var(--txt-1)]">{formatPublishDate(article.created_at, uiLocale)}</p>
 								</div>
 								{prepared?.categoryLabel ? (
 									<div>
-										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[locale].category}</p>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[uiLocale].category}</p>
 										<p className="mt-2 text-base font-semibold text-[color:var(--txt-1)]">{prepared.categoryLabel}</p>
 									</div>
 								) : null}
 								{prepared?.subcategoryLabel ? (
 									<div>
-										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[locale].subcategory}</p>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[uiLocale].subcategory}</p>
 										<p className="mt-2 text-base font-semibold text-[color:var(--txt-1)]">{prepared.subcategoryLabel}</p>
 									</div>
 								) : null}
 								{sourceHashtags.length > 0 ? (
 									<div>
-										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[locale].tags}</p>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy[uiLocale].tags}</p>
 										<div className="mt-3 flex flex-wrap gap-2">
 											{sourceHashtags.map((tag) => (
 												<Link
 													key={`aside-#${tag}`}
-													href={buildHashtagHref(`#${tag}`, locale)}
+													href={buildHashtagHref(`#${tag}`, uiLocale, selectedCountry)}
 													className="rounded-full border px-3 py-1 text-sm font-medium transition-opacity hover:opacity-85"
 													style={buildTagStyle()}
 												>
@@ -1399,7 +1466,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 								style={{ borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)" }}
 							>
 								<p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">
-									{copy[locale].relatedReading}
+									{copy[uiLocale].relatedReading}
 								</p>
 								{relatedPosts.length > 0 ? (
 									<div className="mt-4 space-y-3">
@@ -1439,14 +1506,14 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 										))}
 									</div>
 								) : (
-									<p className="mt-3 text-sm leading-7 text-[color:var(--txt-2)]">{copy[locale].noRelatedReading}</p>
+									<p className="mt-3 text-sm leading-7 text-[color:var(--txt-2)]">{copy[uiLocale].noRelatedReading}</p>
 								)}
 							</div>
 						</section>
 					</aside>
 				</div>
 
-				<SiteFooter locale={locale} />
+				<SiteFooter locale={uiLocale} />
 			</div>
 		</main>
 	);

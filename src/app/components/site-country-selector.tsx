@@ -15,6 +15,20 @@ import {
 	type PostCountryCode,
 } from "@/lib/post-country-filter";
 
+function readCountryFromSessionCookie(): PostCountryCode {
+	if (typeof document === "undefined") {
+		return DEFAULT_POST_COUNTRY_CODE;
+	}
+
+	const cookieValue = document.cookie
+		.split(";")
+		.map((entry) => entry.trim())
+		.find((entry) => entry.startsWith(`${POST_COUNTRY_COOKIE_KEY}=`))
+		?.split("=")[1];
+
+	return readPostCountryParam(cookieValue ? decodeURIComponent(cookieValue) : undefined);
+}
+
 function buildCountrySelectorHref(
 	pathname: string | null,
 	searchParams: URLSearchParams,
@@ -58,11 +72,17 @@ export function SiteCountrySelector({ initialCountry = DEFAULT_POST_COUNTRY_CODE
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [isPending, startTransition] = useTransition();
 	const [isOpen, setIsOpen] = useState(false);
-	const selectedCountryParam = searchParams.get("country") ?? undefined;
-	const selectedCountry = selectedCountryParam?.trim() ? readPostCountryParam(selectedCountryParam) : initialCountry;
+	const [selectedCountry, setSelectedCountry] = useState<PostCountryCode>(initialCountry);
+	const searchParamsString = searchParams.toString();
 	const messageVariant = getPostCountryMessageVariant(selectedCountry);
 	const selectedFlag = getPostCountryFlag(selectedCountry);
 	const selectedLabel = t(`${messageVariant}.countries.${selectedCountry}`);
+
+	useEffect(() => {
+		const selectedCountryParam = searchParams.get("country") ?? undefined;
+		const nextCountry = selectedCountryParam?.trim() ? readPostCountryParam(selectedCountryParam) : readCountryFromSessionCookie();
+		setSelectedCountry(nextCountry);
+	}, [initialCountry, pathname, searchParams, searchParamsString]);
 
 	useEffect(() => {
 		if (!isOpen) {
@@ -143,6 +163,7 @@ export function SiteCountrySelector({ initialCountry = DEFAULT_POST_COUNTRY_CODE
 									onClick={() => {
 										const nextHref = buildCountrySelectorHref(pathname, new URLSearchParams(searchParams.toString()), option.code);
 										document.cookie = `${POST_COUNTRY_COOKIE_KEY}=${option.code}; path=/; SameSite=Lax`;
+										setSelectedCountry(option.code);
 										setIsOpen(false);
 										startTransition(() => {
 											router.push(nextHref);

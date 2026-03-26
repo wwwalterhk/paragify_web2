@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 
-type Locale = "en" | "zh";
+type Locale = "en" | "zh" | "ja";
 
 export type PostComment = {
 	comment_id: number;
@@ -55,6 +55,16 @@ const copy: Record<
 		replyingTo: "回覆",
 		cancel: "取消",
 		failed: "發佈留言失敗。",
+	},
+	ja: {
+		title: "コメント",
+		empty: "まだコメントはありません。",
+		placeholder: "コメントを追加...",
+		send: "投稿",
+		reply: "返信",
+		replyingTo: "返信先",
+		cancel: "キャンセル",
+		failed: "コメントの投稿に失敗しました。",
 	},
 };
 
@@ -133,7 +143,13 @@ export function PostDetailComments({ locale, postId, initialComments }: PostDeta
 							{comment.body}
 						</div>
 						<div className="mt-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-[color:var(--txt-3)]">
-							<span>{comment.created_at ? new Date(comment.created_at).toLocaleString() : ""}</span>
+							<span>
+								{comment.created_at
+									? new Date(comment.created_at).toLocaleString(
+											locale === "ja" ? "ja-JP" : locale === "zh" ? "zh-HK" : "en-US",
+									  )
+									: ""}
+							</span>
 							<button
 								type="button"
 								onClick={() => setReplyTo(comment.comment_id)}
