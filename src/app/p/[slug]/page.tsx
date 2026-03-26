@@ -9,7 +9,9 @@ import { SiteFooter } from "@/app/components/site-footer";
 import PostViewTracker from "@/app/p/[slug]/PostViewTracker";
 import {
 	DEFAULT_POST_COUNTRY_CODE,
+	getPostCountryLocaleValues,
 	getPostCountryPageLocale,
+	normalizePostLocaleFilterValue,
 	POST_COUNTRY_COOKIE_KEY,
 	readPostCountryParam,
 	type PostCountryCode,
@@ -591,11 +593,19 @@ function buildRelatedPostView(row: RelatedPostRow, locale: UiLocale): RelatedPos
 	};
 }
 
-async function loadRelatedPosts(db: D1Database, postId: number, locale: UiLocale): Promise<RelatedPostView[]> {
+async function loadRelatedPosts(
+	db: D1Database,
+	postId: number,
+	locale: UiLocale,
+	countryCode: PostCountryCode,
+): Promise<RelatedPostView[]> {
 	const primaryCategoryId = await loadPrimaryCategoryId(db, postId);
 	if (!primaryCategoryId) {
 		return [];
 	}
+
+	const countryLocaleValues = getPostCountryLocaleValues(countryCode).map((value) => normalizePostLocaleFilterValue(value));
+	const countryLocalePlaceholders = countryLocaleValues.map(() => "?").join(", ");
 
 	const result = await db
 		.prepare(
@@ -622,6 +632,7 @@ async function loadRelatedPosts(db: D1Database, postId: number, locale: UiLocale
 			JOIN posts p
 				ON p.post_id = psa.post_id
 				AND p.visibility = 'public'
+				AND lower(replace(COALESCE(p.locale, ''), '_', '-')) IN (${countryLocalePlaceholders})
 			JOIN users u
 				ON u.user_pk = p.user_pk
 			LEFT JOIN post_keywords pk
@@ -646,7 +657,7 @@ async function loadRelatedPosts(db: D1Database, postId: number, locale: UiLocale
 				p.post_id DESC
 			LIMIT 6`,
 		)
-		.bind(postId, primaryCategoryId, postId)
+		.bind(...countryLocaleValues, postId, primaryCategoryId, postId)
 		.all<RelatedPostRow>();
 
 	return (result.results ?? []).map((row) => buildRelatedPostView(row, locale));
@@ -1030,7 +1041,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 	const secondaryHeadingImage = prepared?.headingImages.find((image) => image.slot === 2) ?? null;
 	const fallbackCaption = stripHashtags(article.caption);
 	const comments = await loadPostComments(db, article.post_id);
-	const relatedPosts = await loadRelatedPosts(db, article.post_id, uiLocale);
+	const relatedPosts = await loadRelatedPosts(db, article.post_id, uiLocale, selectedCountry);
 	const canonicalUrl = toAbsoluteUrl(`/p/${encodeURIComponent(getPostSlugRef(article))}`);
 	const seoSummary = buildArticleSeoSummary(article, prepared, articleLocale);
 	const primaryImageUrl = getPrimarySeoImageUrl(prepared);
