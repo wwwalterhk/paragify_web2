@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import type { CSSProperties, JSX } from "react";
 import { PostDetailComments, type PostComment } from "@/app/post/[locale]/[slug]/post-detail-comments";
 import { SiteFooter } from "@/app/components/site-footer";
+import PostViewTracker from "@/app/p/[slug]/PostViewTracker";
 
 export const dynamic = "force-dynamic";
 
@@ -1072,6 +1073,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 
 	return (
 		<main className="min-h-screen pb-20" style={{ backgroundImage: "var(--page-bg-gradient)" }}>
+			{article.post_slug ? <PostViewTracker postSlug={article.post_slug} /> : null}
 			<div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }} />
 				<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(articleJsonLd) }} />
@@ -1167,7 +1169,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 											className="relative overflow-hidden rounded-[1.5rem] border"
 											style={{
 												...buildSectionStyle(),
-												aspectRatio: "4 / 3",
+												aspectRatio: "16 / 9",
 											}}
 										>
 											{/* eslint-disable-next-line @next/next/no-img-element */}

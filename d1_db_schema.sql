@@ -406,6 +406,18 @@ CREATE TABLE IF NOT EXISTS post_likes (
 );
 CREATE INDEX IF NOT EXISTS idx_post_likes_user ON post_likes(user_pk, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS post_view_uniques (
+  post_id         INTEGER NOT NULL,
+  user_pk         INTEGER NOT NULL,
+  view_count      INTEGER NOT NULL DEFAULT 1,
+  first_viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_viewed_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (post_id, user_pk)
+  -- FOREIGN KEY (post_id) REFERENCES posts(post_id),
+  -- FOREIGN KEY (user_pk) REFERENCES users(user_pk)
+);
+CREATE INDEX IF NOT EXISTS idx_post_view_uniques_user_last ON post_view_uniques(user_pk, last_viewed_at DESC);
+
 CREATE TABLE IF NOT EXISTS post_comments (
   comment_id            INTEGER PRIMARY KEY AUTOINCREMENT,
   post_id               INTEGER NOT NULL,

@@ -1341,7 +1341,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		selectedSearchQuery,
 		selectedAuthor,
 	);
-	const subcategoryCount = taxonomy.reduce((count, category) => count + category.subcategories.length, 0);
 	const selectedTaxonomyCategory = selectedCategory ? taxonomy.find((category) => category.code === selectedCategory) ?? null : null;
 	const selectedTaxonomySubcategory =
 		selectedTaxonomyCategory?.subcategories.find((subcategory) => subcategory.code === selectedSubcategory) ?? null;
@@ -1497,20 +1496,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 					}}
 				>
 					<div className="flex flex-col gap-5">
-						<div className="flex flex-wrap items-center justify-between gap-3">
-							<div>
-								<p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[color:var(--txt-3)]">Category list</p>
-								<h1 className="mt-3 text-4xl font-semibold tracking-tight text-[color:var(--txt-1)] sm:text-5xl">
-									Browse Paragify by topic
-								</h1>
-								<p className="mt-3 max-w-2xl text-base leading-7 text-[color:var(--txt-2)]">
-									Use the taxonomy homepage to jump into watches, tech, food, gaming, and other active categories, then switch to
-									the live feed when you want the rolling stream.
-								</p>
-							</div>
-							<p className="text-sm text-[color:var(--txt-3)]">{taxonomy.length} categories · {totalPosts} posts · {subcategoryCount} subcategories</p>
-						</div>
-
 						<nav className="flex flex-wrap gap-2" aria-label="Homepage categories">
 							<Link
 								href={buildPageHref(1, locale, null, null, selectedHashtag, selectedSearchQuery, selectedAuthor)}
@@ -1570,13 +1555,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 									borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
 								}}
 							>
-								<div className="flex flex-wrap items-center justify-between gap-3">
-									<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">Subcategories</p>
-									<p className="text-sm text-[color:var(--txt-3)]">
-										{selectedTaxonomyCategory.name} · {selectedTaxonomyCategory.subcategories.length} subs
-									</p>
-								</div>
-								<div className="mt-4 flex flex-wrap gap-2">
+								<div className="flex flex-wrap gap-2">
 									{selectedTaxonomyCategory.subcategories.map((subcategory) => (
 										<Link
 											key={`${selectedTaxonomyCategory.code}-${subcategory.code}`}
