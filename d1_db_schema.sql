@@ -364,6 +364,14 @@ WHERE visibility = 'prepare'
   AND prepare_content IS NOT NULL
   AND trim(prepare_content) <> '';
 
+CREATE TABLE IF NOT EXISTS social_publish_facebook_post_refs (
+  post_id        INTEGER PRIMARY KEY,
+  fb_id          TEXT NOT NULL,
+  fb_perm_link   TEXT,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 
 -- Migration for existing databases (run once, separately from full schema bootstrap):
 -- ALTER TABLE posts ADD COLUMN show_page_content INTEGER NOT NULL DEFAULT 1;

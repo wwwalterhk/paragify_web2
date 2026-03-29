@@ -13,6 +13,8 @@ type PublishCandidateRow = {
 	brand_slug: string | null;
 	created_at: string | null;
 	visibility: string;
+	fb_id: string | null;
+	fb_perm_link: string | null;
 	cover_media_url: string | null;
 	cover_raw_media_url: string | null;
 	cover_media_type: string | null;
@@ -135,6 +137,20 @@ function toCdnUrl(mediaUrl: string | null, rawMediaUrl: string | null, mediaType
 	return `${CDN_IMAGE_BASE}/${mediaKey}`;
 }
 
+async function ensureFacebookPostRefTable(db: D1Database): Promise<void> {
+	await db
+		.prepare(
+			`CREATE TABLE IF NOT EXISTS social_publish_facebook_post_refs (
+				post_id INTEGER PRIMARY KEY,
+				fb_id TEXT NOT NULL,
+				fb_perm_link TEXT,
+				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
+		)
+		.run();
+}
+
 export async function GET(request: Request) {
 	try {
 		const { env } = await getCloudflareContext({ async: true });
@@ -143,6 +159,8 @@ export async function GET(request: Request) {
 		if (!db) {
 			return NextResponse.json({ ok: false, message: "DB unavailable" }, { status: 500 });
 		}
+
+		await ensureFacebookPostRefTable(db);
 
 		const requestUrl = new URL(request.url);
 		const page = toPositiveInt(requestUrl.searchParams.get("page"), 1);
@@ -166,6 +184,8 @@ export async function GET(request: Request) {
             p.brand_slug,
             p.created_at,
             p.visibility,
+            fpb.fb_id,
+            fpb.fb_perm_link,
             COALESCE(cp.media_url, fp.media_url) AS cover_media_url,
             COALESCE(cp.raw_media_url, fp.raw_media_url) AS cover_raw_media_url,
             COALESCE(cp.media_type, fp.media_type) AS cover_media_type,
@@ -178,6 +198,8 @@ export async function GET(request: Request) {
           LEFT JOIN post_pages fp
             ON fp.post_id = p.post_id
            AND fp.page_num = 1
+          LEFT JOIN social_publish_facebook_post_refs fpb
+            ON fpb.post_id = p.post_id
           WHERE p.visibility = 'public'
           ORDER BY p.created_at DESC, p.post_id DESC
           LIMIT ? OFFSET ?`,
@@ -195,13 +217,13 @@ export async function GET(request: Request) {
 			brand_slug: row.brand_slug,
 			created_at: row.created_at,
 			visibility: row.visibility,
-			fb_id: null,
-			fb_perm_link: null,
+			fb_id: row.fb_id,
+			fb_perm_link: row.fb_perm_link,
 			post_url: buildPostUrl(row),
 			cover_url: toCdnUrl(row.cover_media_url, row.cover_raw_media_url, row.cover_media_type),
 			cover_width: row.cover_width,
 			cover_height: row.cover_height,
-			facebook_published: false,
+			facebook_published: Boolean(readString(row.fb_id) || readString(row.fb_perm_link)),
 		}));
 
 		const hasMore = offset + posts.length < total;
