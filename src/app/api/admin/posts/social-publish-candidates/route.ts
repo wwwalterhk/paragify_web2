@@ -32,6 +32,45 @@ function readString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function isPublishedFacebookReference(fbId: string | null, fbPermLink: string | null): boolean {
+	const normalizedID = readString(fbId);
+	if (normalizedID === "0") {
+		return false;
+	}
+	return Boolean(normalizedID || readString(fbPermLink));
+}
+
+function parseFacebookIDFilter(value: string | null): "all" | "null" | "zero" | "nonzero" {
+	switch (value?.trim().toLowerCase()) {
+		case "null":
+			return "null";
+		case "zero":
+		case "0":
+			return "zero";
+		case "nonzero":
+		case "not_0":
+		case "not0":
+		case "neq0":
+		case "<>0":
+			return "nonzero";
+		default:
+			return "all";
+	}
+}
+
+function buildFacebookIDFilterClause(columnName: string, filter: "all" | "null" | "zero" | "nonzero"): string {
+	switch (filter) {
+		case "null":
+			return ` AND COALESCE(trim(${columnName}), '') = ''`;
+		case "zero":
+			return ` AND COALESCE(trim(${columnName}), '') = '0'`;
+		case "nonzero":
+			return ` AND COALESCE(trim(${columnName}), '') NOT IN ('', '0')`;
+		default:
+			return "";
+	}
+}
+
 function toPositiveInt(value: string | null, fallback: number): number {
 	if (!value) return fallback;
 	const parsed = Number(value);
@@ -163,12 +202,20 @@ export async function GET(request: Request) {
 		await ensureFacebookPostRefTable(db);
 
 		const requestUrl = new URL(request.url);
+		const fbIDFilter = parseFacebookIDFilter(requestUrl.searchParams.get("fb_id_filter"));
+		const fbIDWhereClause = buildFacebookIDFilterClause("fpb.fb_id", fbIDFilter);
 		const page = toPositiveInt(requestUrl.searchParams.get("page"), 1);
 		const limit = Math.min(toPositiveInt(requestUrl.searchParams.get("limit"), 30), 100);
 		const offset = (page - 1) * limit;
 
 		const totalRow = await db
-			.prepare(`SELECT COUNT(1) AS total FROM posts p WHERE p.visibility = 'public'`)
+			.prepare(
+				`SELECT COUNT(1) AS total
+				   FROM posts p
+				   LEFT JOIN social_publish_facebook_post_refs fpb
+				     ON fpb.post_id = p.post_id
+				  WHERE p.visibility = 'public'${fbIDWhereClause}`,
+			)
 			.first<{ total: number }>();
 		const total = Number(totalRow?.total ?? 0);
 
@@ -201,6 +248,7 @@ export async function GET(request: Request) {
           LEFT JOIN social_publish_facebook_post_refs fpb
             ON fpb.post_id = p.post_id
           WHERE p.visibility = 'public'
+          ${fbIDWhereClause}
           ORDER BY p.created_at DESC, p.post_id DESC
           LIMIT ? OFFSET ?`,
 			)
@@ -223,7 +271,7 @@ export async function GET(request: Request) {
 			cover_url: toCdnUrl(row.cover_media_url, row.cover_raw_media_url, row.cover_media_type),
 			cover_width: row.cover_width,
 			cover_height: row.cover_height,
-			facebook_published: Boolean(readString(row.fb_id) || readString(row.fb_perm_link)),
+			facebook_published: isPublishedFacebookReference(row.fb_id, row.fb_perm_link),
 		}));
 
 		const hasMore = offset + posts.length < total;
