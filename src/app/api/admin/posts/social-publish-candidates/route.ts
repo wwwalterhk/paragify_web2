@@ -15,6 +15,7 @@ type PublishCandidateRow = {
 	visibility: string;
 	fb_id: string | null;
 	fb_perm_link: string | null;
+	ig_ref: string | null;
 	cover_media_url: string | null;
 	cover_raw_media_url: string | null;
 	cover_media_type: string | null;
@@ -40,7 +41,7 @@ function isPublishedFacebookReference(fbId: string | null, fbPermLink: string | 
 	return Boolean(normalizedID || readString(fbPermLink));
 }
 
-function parseFacebookIDFilter(value: string | null): "all" | "null" | "zero" | "nonzero" {
+function parseReferenceFilter(value: string | null): "all" | "null" | "zero" | "nonzero" {
 	switch (value?.trim().toLowerCase()) {
 		case "null":
 			return "null";
@@ -58,7 +59,7 @@ function parseFacebookIDFilter(value: string | null): "all" | "null" | "zero" | 
 	}
 }
 
-function buildFacebookIDFilterClause(columnName: string, filter: "all" | "null" | "zero" | "nonzero"): string {
+function buildReferenceFilterClause(columnName: string, filter: "all" | "null" | "zero" | "nonzero"): string {
 	switch (filter) {
 		case "null":
 			return ` AND COALESCE(trim(${columnName}), '') = ''`;
@@ -202,8 +203,10 @@ export async function GET(request: Request) {
 		await ensureFacebookPostRefTable(db);
 
 		const requestUrl = new URL(request.url);
-		const fbIDFilter = parseFacebookIDFilter(requestUrl.searchParams.get("fb_id_filter"));
-		const fbIDWhereClause = buildFacebookIDFilterClause("fpb.fb_id", fbIDFilter);
+		const fbIDFilter = parseReferenceFilter(requestUrl.searchParams.get("fb_id_filter"));
+		const igRefFilter = parseReferenceFilter(requestUrl.searchParams.get("ig_ref_filter"));
+		const fbIDWhereClause = buildReferenceFilterClause("fpb.fb_id", fbIDFilter);
+		const igRefWhereClause = buildReferenceFilterClause("p.ig_ref", igRefFilter);
 		const page = toPositiveInt(requestUrl.searchParams.get("page"), 1);
 		const limit = Math.min(toPositiveInt(requestUrl.searchParams.get("limit"), 30), 100);
 		const offset = (page - 1) * limit;
@@ -214,7 +217,7 @@ export async function GET(request: Request) {
 				   FROM posts p
 				   LEFT JOIN social_publish_facebook_post_refs fpb
 				     ON fpb.post_id = p.post_id
-				  WHERE p.visibility = 'public'${fbIDWhereClause}`,
+				  WHERE p.visibility = 'public'${fbIDWhereClause}${igRefWhereClause}`,
 			)
 			.first<{ total: number }>();
 		const total = Number(totalRow?.total ?? 0);
@@ -233,6 +236,7 @@ export async function GET(request: Request) {
             p.visibility,
             fpb.fb_id,
             fpb.fb_perm_link,
+            p.ig_ref,
             COALESCE(cp.media_url, fp.media_url) AS cover_media_url,
             COALESCE(cp.raw_media_url, fp.raw_media_url) AS cover_raw_media_url,
             COALESCE(cp.media_type, fp.media_type) AS cover_media_type,
@@ -249,6 +253,7 @@ export async function GET(request: Request) {
             ON fpb.post_id = p.post_id
           WHERE p.visibility = 'public'
           ${fbIDWhereClause}
+          ${igRefWhereClause}
           ORDER BY p.created_at DESC, p.post_id DESC
           LIMIT ? OFFSET ?`,
 			)
@@ -267,6 +272,7 @@ export async function GET(request: Request) {
 			visibility: row.visibility,
 			fb_id: row.fb_id,
 			fb_perm_link: row.fb_perm_link,
+			ig_ref: row.ig_ref,
 			post_url: buildPostUrl(row),
 			cover_url: toCdnUrl(row.cover_media_url, row.cover_raw_media_url, row.cover_media_type),
 			cover_width: row.cover_width,
