@@ -57,6 +57,9 @@ type HomePageCopy = {
 	noMatchAuthor: (value: string) => string;
 	noMatchCategory: (value: string) => string;
 	noMatchFallback: string;
+	relatedResultsTitle: string;
+	hashtagOnlyFallback: (hashtag: string, scope: string, count: string) => string;
+	hashtagOnlyFallbackSectionTitle: (hashtag: string) => string;
 	dbUnavailableError: string;
 	loadFailedError: string;
 };
@@ -93,6 +96,10 @@ const HOME_PAGE_COPY: Record<Locale, HomePageCopy> = {
 		noMatchAuthor: (value) => `Nothing matched the current author filter: @${value}.`,
 		noMatchCategory: (value) => `Nothing matched the current category filter: ${value}.`,
 		noMatchFallback: "Nothing matched the current public-post query.",
+		relatedResultsTitle: "Related results",
+		hashtagOnlyFallback: (hashtag, scope, count) =>
+			`No matches were found for ${hashtag} in ${scope}, but there are still ${count} public posts with this hashtag across all categories.`,
+		hashtagOnlyFallbackSectionTitle: (hashtag) => `Results for ${hashtag} across all categories`,
 		dbUnavailableError: "D1 binding `DB` is not available in this environment.",
 		loadFailedError: "Failed to load public posts.",
 	},
@@ -127,6 +134,10 @@ const HOME_PAGE_COPY: Record<Locale, HomePageCopy> = {
 		noMatchAuthor: (value) => `沒有結果符合目前的作者篩選：@${value}。`,
 		noMatchCategory: (value) => `沒有結果符合目前的分類篩選：${value}。`,
 		noMatchFallback: "沒有結果符合目前的公開文章篩選。",
+		relatedResultsTitle: "其他相關結果",
+		hashtagOnlyFallback: (hashtag, scope, count) =>
+			`在「${scope}」下找不到 ${hashtag} 的結果，但在不限制分類的情況下，仍有 ${count} 篇與 ${hashtag} 相關的公開文章。`,
+		hashtagOnlyFallbackSectionTitle: (hashtag) => `${hashtag} 的跨分類結果`,
 		dbUnavailableError: "目前環境未提供 D1 `DB` 綁定。",
 		loadFailedError: "載入公開文章失敗。",
 	},
@@ -161,6 +172,10 @@ const HOME_PAGE_COPY: Record<Locale, HomePageCopy> = {
 		noMatchAuthor: (value) => `現在の投稿者絞り込み「@${value}」に一致する記事はありません。`,
 		noMatchCategory: (value) => `現在のカテゴリ絞り込み「${value}」に一致する記事はありません。`,
 		noMatchFallback: "現在の公開記事条件に一致する記事はありません。",
+		relatedResultsTitle: "関連する結果",
+		hashtagOnlyFallback: (hashtag, scope, count) =>
+			`${scope} では ${hashtag} に一致する記事はありませんが、カテゴリを限定しない条件では ${count} 件の公開記事があります。`,
+		hashtagOnlyFallbackSectionTitle: (hashtag) => `${hashtag} のカテゴリ横断結果`,
 		dbUnavailableError: "この環境では D1 の `DB` バインディングを利用できません。",
 		loadFailedError: "公開記事の読み込みに失敗しました。",
 	},
@@ -290,6 +305,8 @@ type HomePageData = {
 	totalPosts: number;
 	posts: PreparedPostView[];
 	taxonomy: TaxonomyCategory[];
+	hashtagOnlyFallbackCount: number;
+	hashtagOnlyFallbackPosts: PreparedPostView[];
 };
 
 type HomeSeoContext = {
@@ -733,6 +750,10 @@ function formatDate(value: string | null, locale: Locale): string {
 	});
 }
 
+function formatInt(value: number, locale: Locale): string {
+	return new Intl.NumberFormat(locale === "zh" ? "zh-HK" : locale === "ja" ? "ja-JP" : "en-US").format(Math.max(0, value));
+}
+
 function truncateText(value: string | null, maxLength: number): string | null {
 	const normalized = value?.replace(/\s+/g, " ").trim() ?? "";
 	if (!normalized) {
@@ -1067,6 +1088,50 @@ function buildPostView(post: PreparedPostRow, assignments: PostAssignmentGroup[]
 	};
 }
 
+async function buildPreparedPostViews(db: D1Database, rows: PreparedPostRow[], locale: Locale): Promise<PreparedPostView[]> {
+	if (rows.length === 0) {
+		return [];
+	}
+
+	const postIds = rows.map((row) => row.post_id);
+	const placeholders = postIds.map(() => "?").join(", ");
+	const assignmentsResult = await db
+		.prepare(
+			`SELECT
+				psa.post_id,
+				pc.code AS category_code,
+				COALESCE(pct_local.name, pct_en.name, pc.code) AS category_name,
+				psc.code AS subcategory_code,
+				COALESCE(psct_local.name, psct_en.name, psc.code) AS subcategory_name,
+				psa.is_primary,
+				psa.sort_order
+			FROM posts_subcategory_assignments psa
+			JOIN posts_subcategories psc
+				ON psc.posts_subcategory_id = psa.posts_subcategory_id
+			JOIN posts_categories pc
+				ON pc.posts_category_id = psc.posts_category_id
+			LEFT JOIN posts_category_translations pct_local
+				ON pct_local.posts_category_id = pc.posts_category_id
+				AND lower(pct_local.locale) = ?
+			LEFT JOIN posts_category_translations pct_en
+				ON pct_en.posts_category_id = pc.posts_category_id
+				AND lower(pct_en.locale) = 'en'
+			LEFT JOIN posts_subcategory_translations psct_local
+				ON psct_local.posts_subcategory_id = psc.posts_subcategory_id
+				AND lower(psct_local.locale) = ?
+			LEFT JOIN posts_subcategory_translations psct_en
+				ON psct_en.posts_subcategory_id = psc.posts_subcategory_id
+				AND lower(psct_en.locale) = 'en'
+			WHERE psa.post_id IN (${placeholders})
+			ORDER BY psa.post_id ASC, pc.sort_order ASC, psa.is_primary DESC, psa.sort_order ASC, psc.sort_order ASC`,
+		)
+		.bind(locale, locale, ...postIds)
+		.all<PostAssignmentRow>();
+
+	const assignmentMap = buildPostAssignments(assignmentsResult.results ?? []);
+	return rows.map((row) => buildPostView(row, assignmentMap.get(row.post_id) ?? [], locale));
+}
+
 async function loadHomePageData(
 	pageRequest: number,
 	locale: Locale,
@@ -1088,6 +1153,8 @@ async function loadHomePageData(
 				totalPosts: 0,
 				posts: [],
 				taxonomy: [],
+				hashtagOnlyFallbackCount: 0,
+				hashtagOnlyFallbackPosts: [],
 			};
 		}
 
@@ -1188,44 +1255,47 @@ async function loadHomePageData(
 			.bind(...filterBindings, PAGE_SIZE, offset)
 			.all<PreparedPostRow>();
 		const postRows = postsResult.results ?? [];
+		const posts = await buildPreparedPostViews(db, postRows, locale);
+		let hashtagOnlyFallbackCount = 0;
+		let hashtagOnlyFallbackPosts: PreparedPostView[] = [];
 
-		let assignmentRows: PostAssignmentRow[] = [];
-		if (postRows.length > 0) {
-			const postIds = postRows.map((row) => row.post_id);
-			const placeholders = postIds.map(() => "?").join(", ");
-			const assignmentsResult = await db
+		if (totalPosts === 0 && hashtag && (categoryCode || subcategoryCode) && !searchQuery && !authorHandle) {
+			const fallbackRow = await db
 				.prepare(
-					`SELECT
-						psa.post_id,
-						pc.code AS category_code,
-						COALESCE(pct_local.name, pct_en.name, pc.code) AS category_name,
-						psc.code AS subcategory_code,
-						COALESCE(psct_local.name, psct_en.name, psc.code) AS subcategory_name,
-						psa.is_primary,
-						psa.sort_order
-					FROM posts_subcategory_assignments psa
-					JOIN posts_subcategories psc
-						ON psc.posts_subcategory_id = psa.posts_subcategory_id
-					JOIN posts_categories pc
-						ON pc.posts_category_id = psc.posts_category_id
-					LEFT JOIN posts_category_translations pct_local
-						ON pct_local.posts_category_id = pc.posts_category_id
-						AND lower(pct_local.locale) = ?
-					LEFT JOIN posts_category_translations pct_en
-						ON pct_en.posts_category_id = pc.posts_category_id
-						AND lower(pct_en.locale) = 'en'
-					LEFT JOIN posts_subcategory_translations psct_local
-						ON psct_local.posts_subcategory_id = psc.posts_subcategory_id
-						AND lower(psct_local.locale) = ?
-					LEFT JOIN posts_subcategory_translations psct_en
-						ON psct_en.posts_subcategory_id = psc.posts_subcategory_id
-						AND lower(psct_en.locale) = 'en'
-					WHERE psa.post_id IN (${placeholders})
-					ORDER BY psa.post_id ASC, pc.sort_order ASC, psa.is_primary DESC, psa.sort_order ASC, psc.sort_order ASC`,
+					`SELECT COUNT(1) AS total
+					FROM posts p
+					WHERE ${PUBLIC_POSTS_WHERE}${countryFilterClause}${hashtagFilterClause}`,
 				)
-				.bind(locale, locale, ...postIds)
-				.all<PostAssignmentRow>();
-			assignmentRows = assignmentsResult.results ?? [];
+				.bind(...countryLocaleValues, ...hashtagFilterBindings)
+				.first<{ total: number }>();
+			hashtagOnlyFallbackCount = fallbackRow?.total ?? 0;
+
+			if (hashtagOnlyFallbackCount > 0) {
+				const fallbackPostsResult = await db
+					.prepare(
+						`SELECT
+							p.post_id,
+							p.post_slug,
+							p.locale,
+							p.title,
+							p.caption,
+							p.prepare_content,
+							p.created_at,
+							p.updated_at,
+							u.name AS author_name,
+							u.user_id AS author_id
+						FROM posts p
+						LEFT JOIN users u
+							ON u.user_pk = p.user_pk
+						WHERE ${PUBLIC_POSTS_WHERE}${countryFilterClause}${hashtagFilterClause}
+						ORDER BY p.post_id DESC
+						LIMIT ?`,
+					)
+					.bind(...countryLocaleValues, ...hashtagFilterBindings, PAGE_SIZE)
+					.all<PreparedPostRow>();
+
+				hashtagOnlyFallbackPosts = await buildPreparedPostViews(db, fallbackPostsResult.results ?? [], locale);
+			}
 		}
 
 		const taxonomyResult = await db
@@ -1279,9 +1349,6 @@ async function loadHomePageData(
 			.bind(locale, locale, ...countryLocaleValues)
 			.all<TaxonomyRow>();
 
-		const assignmentMap = buildPostAssignments(assignmentRows);
-		const posts = postRows.map((row) => buildPostView(row, assignmentMap.get(row.post_id) ?? [], locale));
-
 		return {
 			error: null,
 			page,
@@ -1289,6 +1356,8 @@ async function loadHomePageData(
 			totalPosts,
 			posts,
 			taxonomy: buildTaxonomy(taxonomyResult.results ?? []),
+			hashtagOnlyFallbackCount,
+			hashtagOnlyFallbackPosts,
 		};
 	} catch (error) {
 		return {
@@ -1298,6 +1367,8 @@ async function loadHomePageData(
 			totalPosts: 0,
 			posts: [],
 			taxonomy: [],
+			hashtagOnlyFallbackCount: 0,
+			hashtagOnlyFallbackPosts: [],
 		};
 	}
 }
@@ -1537,6 +1608,163 @@ function Pagination({
 	);
 }
 
+function buildHashtagOnlyFallbackScope(categoryName: string | null, subcategoryName: string | null): string | null {
+	if (categoryName && subcategoryName) {
+		return `${categoryName} / ${subcategoryName}`;
+	}
+
+	return subcategoryName ?? categoryName ?? null;
+}
+
+function PostCards({ posts, locale }: { posts: PreparedPostView[]; locale: Locale }) {
+	const copy = getHomePageCopy(locale);
+
+	return (
+		<>
+			{posts.map((post) => (
+				<Link key={post.postId} href={post.href} className="group block">
+					<article
+						className="flex flex-col gap-5 rounded-[1.85rem] border p-4 transition-transform duration-200 hover:-translate-y-0.5 sm:p-5"
+						style={{
+							backgroundColor: "color-mix(in srgb, var(--cell-1) 94%, transparent)",
+							borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
+							boxShadow: "var(--shadow-elev-1)",
+						}}
+					>
+						<div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
+							<div
+								className="relative aspect-[4/3] w-full overflow-hidden rounded-[1.35rem] border"
+								style={{
+									background:
+										"linear-gradient(135deg, color-mix(in srgb, var(--accent-3) 65%, transparent), color-mix(in srgb, var(--cell-2) 92%, transparent))",
+									borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)",
+								}}
+							>
+								{post.headingImage1Src ? (
+									// eslint-disable-next-line @next/next/no-img-element
+									<img
+										src={post.headingImage1Src}
+										alt={post.title}
+										className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+										loading="lazy"
+									/>
+								) : (
+									<div className="flex h-full items-end p-5">
+										<div>
+											<p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[color:var(--txt-3)]">{copy.headingImageFallbackLabel}</p>
+											<p className="mt-3 text-xl font-semibold leading-tight text-[color:var(--txt-1)]">{post.title}</p>
+										</div>
+									</div>
+								)}
+							</div>
+
+							<div className="min-w-0">
+								{post.taxonomyLabel || post.eyebrow ? (
+									<div className="flex flex-wrap items-center gap-2">
+										{post.taxonomyLabel ? (
+											<span
+												className="rounded-full px-3 py-1 text-[11px] font-semibold"
+												style={{
+													backgroundColor: "color-mix(in srgb, var(--accent-1) 12%, transparent)",
+													color: "var(--accent-1)",
+												}}
+											>
+												{post.taxonomyLabel}
+											</span>
+										) : null}
+										{post.eyebrow ? <span className="text-sm font-medium text-[color:var(--txt-3)]">{post.eyebrow}</span> : null}
+									</div>
+								) : null}
+
+								<h2 className="mt-4 text-2xl font-semibold tracking-tight text-[color:var(--txt-1)] sm:text-[2rem]">{post.title}</h2>
+
+								{post.subtitle ? <p className="mt-3 text-lg leading-7 text-[color:var(--txt-2)]">{post.subtitle}</p> : null}
+
+								{post.headingHashtags.length > 0 ? (
+									<div className="mt-3 flex flex-wrap gap-2">
+										{post.headingHashtags.map((hashtag) => (
+											<span
+												key={`${post.postId}-heading-${hashtag}`}
+												className="rounded-full border px-3 py-1 text-sm font-medium"
+												style={{
+													borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)",
+													color: "var(--accent-2)",
+													backgroundColor: "color-mix(in srgb, var(--accent-2) 10%, transparent)",
+												}}
+											>
+												{hashtag}
+											</span>
+										))}
+									</div>
+								) : null}
+
+								{post.footerLine ? <p className="mt-3 text-base font-medium leading-7 text-[color:var(--txt-2)]">{post.footerLine}</p> : null}
+							</div>
+						</div>
+
+						{post.keyLines.length > 0 ? (
+							<div className="space-y-2 border-l-2 pl-3" style={{ borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)" }}>
+								{post.keyLines.map((keyLine, index) => (
+									<p key={`${post.postId}-key-line-${index}`} className="text-lg font-semibold leading-8 text-[color:var(--txt-1)]">
+										{keyLine}
+									</p>
+								))}
+							</div>
+						) : null}
+
+						{post.hashtagsLocale.length > 0 ? (
+							<div className="mt-5">
+								<div className="flex flex-wrap gap-2">
+									{post.hashtagsLocale.map((hashtag) => (
+										<span
+											key={`${post.postId}-locale-${hashtag}`}
+											className="rounded-full border px-3 py-1 text-sm font-medium"
+											style={{
+												borderColor: "color-mix(in srgb, var(--accent-1) 26%, transparent)",
+												color: "var(--accent-1)",
+												backgroundColor: "color-mix(in srgb, var(--accent-1) 10%, transparent)",
+											}}
+										>
+											{hashtag}
+										</span>
+									))}
+								</div>
+							</div>
+						) : null}
+
+						{post.hashtags.length > 0 ? (
+							<div className="mt-5 flex flex-wrap gap-2">
+								{post.hashtags.map((hashtag) => (
+									<span
+										key={`${post.postId}-${hashtag}`}
+										className="rounded-full border px-3 py-1 text-sm font-medium"
+										style={{
+											borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)",
+											color: "var(--accent-2)",
+											backgroundColor: "color-mix(in srgb, var(--accent-2) 10%, transparent)",
+										}}
+									>
+										{hashtag}
+									</span>
+								))}
+							</div>
+						) : null}
+
+						<div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-4 text-sm">
+							<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[color:var(--txt-3)]">
+								<span className="font-medium text-[color:var(--txt-1)]">{post.authorName}</span>
+								{post.authorHandle ? <span>@{post.authorHandle}</span> : null}
+								<span>{copy.publishedLabel} {formatDate(post.createdAt, locale)}</span>
+							</div>
+							<span className="font-semibold text-[color:var(--accent-1)]">{copy.openPostLabel}</span>
+						</div>
+					</article>
+				</Link>
+			))}
+		</>
+	);
+}
+
 export default async function HomePage({ searchParams }: HomePageProps) {
 	const resolvedSearchParams = (await searchParams) || {};
 	const selectedCountry = await resolveSelectedCountryCode(resolvedSearchParams.country);
@@ -1558,7 +1786,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		authorHandle: selectedAuthor,
 		countryCode: selectedCountry,
 	});
-	const { error, page, totalPages, totalPosts, posts, taxonomy } = await loadHomePageData(
+	const { error, page, totalPages, totalPosts, posts, taxonomy, hashtagOnlyFallbackCount, hashtagOnlyFallbackPosts } = await loadHomePageData(
 		requestedPage,
 		locale,
 		selectedCategory,
@@ -1568,9 +1796,16 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		selectedAuthor,
 		selectedCountry,
 	);
-	const selectedTaxonomyCategory = selectedCategory ? taxonomy.find((category) => category.code === selectedCategory) ?? null : null;
+	const selectedTaxonomyCategory =
+		(selectedCategory ? taxonomy.find((category) => category.code === selectedCategory) : null) ??
+		(selectedSubcategory ? taxonomy.find((category) => category.subcategories.some((subcategory) => subcategory.code === selectedSubcategory)) : null) ??
+		null;
 	const selectedTaxonomySubcategory =
 		selectedTaxonomyCategory?.subcategories.find((subcategory) => subcategory.code === selectedSubcategory) ?? null;
+	const hashtagOnlyFallbackScope = buildHashtagOnlyFallbackScope(
+		selectedTaxonomyCategory?.name ?? toSeoLabel(selectedCategory),
+		selectedTaxonomySubcategory?.name ?? toSeoLabel(selectedSubcategory),
+	);
 	const canonicalUrl = toAbsoluteUrl(
 		buildPageHref(page, locale, selectedCategory, selectedSubcategory, selectedHashtag, selectedSearchQuery, selectedAuthor, selectedCountry),
 	);
@@ -1934,149 +2169,49 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 										category: selectedCategory,
 									})}
 								</p>
+								{selectedHashtag && hashtagOnlyFallbackCount > 0 && hashtagOnlyFallbackScope ? (
+									<div
+										className="mt-5 rounded-[1.25rem] border p-4"
+										style={{
+											backgroundColor: "color-mix(in srgb, var(--cell-2) 92%, transparent)",
+											borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)",
+										}}
+									>
+										<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--txt-3)]">{copy.relatedResultsTitle}</p>
+										<p className="mt-2 text-sm leading-6 text-[color:var(--txt-2)]">
+											{copy.hashtagOnlyFallback(selectedHashtag, hashtagOnlyFallbackScope, formatInt(hashtagOnlyFallbackCount, locale))}
+										</p>
+									</div>
+								) : null}
 							</section>
 						) : null}
 
-						{posts.map((post) => (
-							<Link key={post.postId} href={post.href} className="group block">
-								<article
-									className="flex flex-col gap-5 rounded-[1.85rem] border p-4 transition-transform duration-200 hover:-translate-y-0.5 sm:p-5"
-									style={{
-										backgroundColor: "color-mix(in srgb, var(--cell-1) 94%, transparent)",
-										borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
-										boxShadow: "var(--shadow-elev-1)",
-									}}
-								>
-									<div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
-										<div
-											className="relative aspect-[4/3] w-full overflow-hidden rounded-[1.35rem] border"
-											style={{
-												background:
-													"linear-gradient(135deg, color-mix(in srgb, var(--accent-3) 65%, transparent), color-mix(in srgb, var(--cell-2) 92%, transparent))",
-												borderColor: "color-mix(in srgb, var(--surface-border) 82%, transparent)",
-											}}
-										>
-											{post.headingImage1Src ? (
-												// eslint-disable-next-line @next/next/no-img-element
-												<img
-													src={post.headingImage1Src}
-													alt={post.title}
-													className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-													loading="lazy"
-												/>
-											) : (
-												<div className="flex h-full items-end p-5">
-													<div>
-														<p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[color:var(--txt-3)]">{copy.headingImageFallbackLabel}</p>
-														<p className="mt-3 text-xl font-semibold leading-tight text-[color:var(--txt-1)]">{post.title}</p>
-													</div>
-												</div>
-											)}
-										</div>
+						{selectedHashtag && hashtagOnlyFallbackPosts.length > 0 ? (
+							<section
+								className="rounded-[1.75rem] border p-6"
+								style={{
+									backgroundColor: "color-mix(in srgb, var(--cell-1) 94%, transparent)",
+									borderColor: "color-mix(in srgb, var(--surface-border) 85%, transparent)",
+								}}
+							>
+								<p className="text-sm font-semibold uppercase tracking-[0.2em] text-[color:var(--txt-3)]">{copy.relatedResultsTitle}</p>
+								<h2 className="mt-3 text-2xl font-semibold tracking-tight text-[color:var(--txt-1)]">
+									{copy.hashtagOnlyFallbackSectionTitle(selectedHashtag)}
+								</h2>
+								{hashtagOnlyFallbackScope && hashtagOnlyFallbackCount > 0 ? (
+									<p className="mt-3 text-base leading-7 text-[color:var(--txt-2)]">
+										{copy.hashtagOnlyFallback(selectedHashtag, hashtagOnlyFallbackScope, formatInt(hashtagOnlyFallbackCount, locale))}
+									</p>
+								) : null}
+								<div className="mt-6 flex flex-col gap-4">
+									<PostCards posts={hashtagOnlyFallbackPosts} locale={locale} />
+								</div>
+							</section>
+						) : null}
 
-										<div className="min-w-0">
-											{post.taxonomyLabel || post.eyebrow ? (
-												<div className="flex flex-wrap items-center gap-2">
-													{post.taxonomyLabel ? (
-														<span
-															className="rounded-full px-3 py-1 text-[11px] font-semibold"
-															style={{
-																backgroundColor: "color-mix(in srgb, var(--accent-1) 12%, transparent)",
-																color: "var(--accent-1)",
-															}}
-														>
-															{post.taxonomyLabel}
-														</span>
-													) : null}
-													{post.eyebrow ? <span className="text-sm font-medium text-[color:var(--txt-3)]">{post.eyebrow}</span> : null}
-												</div>
-											) : null}
-
-											<h2 className="mt-4 text-2xl font-semibold tracking-tight text-[color:var(--txt-1)] sm:text-[2rem]">{post.title}</h2>
-
-											{post.subtitle ? <p className="mt-3 text-lg leading-7 text-[color:var(--txt-2)]">{post.subtitle}</p> : null}
-
-											{post.headingHashtags.length > 0 ? (
-												<div className="mt-3 flex flex-wrap gap-2">
-													{post.headingHashtags.map((hashtag) => (
-														<span
-															key={`${post.postId}-heading-${hashtag}`}
-															className="rounded-full border px-3 py-1 text-sm font-medium"
-															style={{
-																borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)",
-																color: "var(--accent-2)",
-																backgroundColor: "color-mix(in srgb, var(--accent-2) 10%, transparent)",
-															}}
-														>
-															{hashtag}
-														</span>
-													))}
-												</div>
-											) : null}
-
-											{post.footerLine ? <p className="mt-3 text-base font-medium leading-7 text-[color:var(--txt-2)]">{post.footerLine}</p> : null}
-										</div>
-									</div>
-
-									{post.keyLines.length > 0 ? (
-										<div className="space-y-2 border-l-2 pl-3" style={{ borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)" }}>
-											{post.keyLines.map((keyLine, index) => (
-												<p key={`${post.postId}-key-line-${index}`} className="text-lg font-semibold leading-8 text-[color:var(--txt-1)]">
-													{keyLine}
-												</p>
-											))}
-										</div>
-									) : null}
-
-									{post.hashtagsLocale.length > 0 ? (
-										<div className="mt-5">
-											<div className="flex flex-wrap gap-2">
-												{post.hashtagsLocale.map((hashtag) => (
-													<span
-														key={`${post.postId}-locale-${hashtag}`}
-														className="rounded-full border px-3 py-1 text-sm font-medium"
-														style={{
-															borderColor: "color-mix(in srgb, var(--accent-1) 26%, transparent)",
-															color: "var(--accent-1)",
-															backgroundColor: "color-mix(in srgb, var(--accent-1) 10%, transparent)",
-														}}
-													>
-														{hashtag}
-													</span>
-												))}
-											</div>
-										</div>
-									) : null}
-
-									{post.hashtags.length > 0 ? (
-										<div className="mt-5 flex flex-wrap gap-2">
-											{post.hashtags.map((hashtag) => (
-												<span
-													key={`${post.postId}-${hashtag}`}
-													className="rounded-full border px-3 py-1 text-sm font-medium"
-													style={{
-														borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)",
-														color: "var(--accent-2)",
-														backgroundColor: "color-mix(in srgb, var(--accent-2) 10%, transparent)",
-													}}
-												>
-													{hashtag}
-												</span>
-											))}
-										</div>
-									) : null}
-
-									<div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-4 text-sm">
-										<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[color:var(--txt-3)]">
-											<span className="font-medium text-[color:var(--txt-1)]">{post.authorName}</span>
-											{post.authorHandle ? <span>@{post.authorHandle}</span> : null}
-											<span>{copy.publishedLabel} {formatDate(post.createdAt, locale)}</span>
-										</div>
-										<span className="font-semibold text-[color:var(--accent-1)]">{copy.openPostLabel}</span>
-									</div>
-								</article>
-							</Link>
-						))}
+						<div className="flex flex-col gap-4">
+							<PostCards posts={posts} locale={locale} />
+						</div>
 
 						{posts.length > 0 ? (
 							<Pagination
