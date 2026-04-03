@@ -86,6 +86,8 @@ type PreparedParagraph = {
 	heading: string | null;
 	content: string | null;
 	url: string | null;
+	urlWidth: number | null;
+	urlHeight: number | null;
 	hashtags: string[];
 };
 
@@ -269,6 +271,21 @@ function toTrimmedText(value: unknown): string | null {
 	return trimmed.length > 0 ? trimmed : null;
 }
 
+function toPositiveNumber(value: unknown): number | null {
+	if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+		return value;
+	}
+
+	if (typeof value === "string") {
+		const normalized = Number(value.trim());
+		if (Number.isFinite(normalized) && normalized > 0) {
+			return normalized;
+		}
+	}
+
+	return null;
+}
+
 function parsePossiblyEscapedJson(value: unknown, maxDepth = 4): unknown {
 	let current: unknown = value;
 
@@ -410,6 +427,8 @@ function parsePrepareContent(value: string | null): PreparedContentView | null {
 		const content = toTrimmedText(paragraphRecord.content);
 		const rawUrl = toTrimmedText(paragraphRecord.url);
 		const url = paragraphType === "image" ? toPrepareContentImageUrl(rawUrl) : rawUrl;
+		const urlWidth = paragraphType === "image" ? toPositiveNumber(paragraphRecord.url_img_width) : null;
+		const urlHeight = paragraphType === "image" ? toPositiveNumber(paragraphRecord.url_img_height) : null;
 		const hashtags = paragraphType === "hashtags" ? toNormalizedHashtags(content) : [];
 
 		if (paragraphType === "p" && !heading && !content) {
@@ -427,6 +446,8 @@ function parsePrepareContent(value: string | null): PreparedContentView | null {
 			heading,
 			content,
 			url,
+			urlWidth,
+			urlHeight,
 			hashtags,
 		});
 	}
@@ -1255,7 +1276,16 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 
 									<div className="max-w-3xl">
 										{prepared?.eyebrow ? (
-											<p className="text-sm font-semibold uppercase tracking-[0.28em] text-[color:var(--txt-3)]">{prepared.eyebrow}</p>
+											<p
+												className="inline-block text-sm font-semibold uppercase tracking-[0.28em]"
+												style={{
+													backgroundColor: "#CB1F27",
+													color: "#fff",
+													padding: "4px",
+												}}
+											>
+												{prepared.eyebrow}
+											</p>
 										) : null}
 
 										<h1 className="mt-3 text-4xl font-semibold tracking-tight text-[color:var(--txt-1)] sm:text-5xl">{title}</h1>
@@ -1316,10 +1346,24 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 													style={buildSectionStyle()}
 												>
 													{paragraph.url ? (
-														<div className="relative overflow-hidden rounded-[1.25rem]" style={{ aspectRatio: "4 / 3" }}>
-															{/* eslint-disable-next-line @next/next/no-img-element */}
-															<img src={paragraph.url} alt={paragraph.heading ?? title} className="h-full w-full object-cover" loading="lazy" />
-														</div>
+														paragraph.urlWidth && paragraph.urlHeight ? (
+															<div className="overflow-hidden rounded-[1.25rem]">
+																{/* eslint-disable-next-line @next/next/no-img-element */}
+																<img
+																	src={paragraph.url}
+																	alt={paragraph.heading ?? title}
+																	width={paragraph.urlWidth}
+																	height={paragraph.urlHeight}
+																	className="h-auto w-full"
+																	loading="lazy"
+																/>
+															</div>
+														) : (
+															<div className="relative overflow-hidden rounded-[1.25rem]" style={{ aspectRatio: "4 / 3" }}>
+																{/* eslint-disable-next-line @next/next/no-img-element */}
+																<img src={paragraph.url} alt={paragraph.heading ?? title} className="h-full w-full object-cover" loading="lazy" />
+															</div>
+														)
 													) : null}
 													{paragraph.heading || paragraph.content ? (
 														<figcaption className="px-2 pb-2 pt-4">
