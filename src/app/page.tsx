@@ -23,6 +23,7 @@ const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).
 const PRIMARY_CDN_ORIGIN = "https://cdn.paragify.com";
 const PUBLIC_POSTS_WHERE = "p.visibility = 'public'";
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
+const KEY_LINES_BADGE_BACKGROUND_COLOR = "#CB1F27";
 
 type Locale = "en" | "zh" | "ja";
 
@@ -1703,7 +1704,7 @@ function PostCards({ posts, locale }: { posts: PreparedPostView[]; locale: Local
 						</div>
 
 						{post.keyLines.length > 0 ? (
-							<div className="space-y-2 border-l-2 pl-3" style={{ borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)" }}>
+							<div className="space-y-2 border-l-2 pl-3" style={{ borderColor: KEY_LINES_BADGE_BACKGROUND_COLOR }}>
 								{post.keyLines.map((keyLine, index) => (
 									<p key={`${post.postId}-key-line-${index}`} className="text-lg font-semibold leading-8 text-[color:var(--txt-1)]">
 										{keyLine}

@@ -12,7 +12,6 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 				home: "Home",
 				feed: "Feed",
 				create: "Create",
-				tools: "Tools",
 				privacy: "Privacy Policy",
 				terms: "Terms",
 				accountDeletion: "Account Deletion",
@@ -23,7 +22,6 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 					home: "ホーム",
 					feed: "フィード",
 					create: "投稿",
-					tools: "ツール",
 					privacy: "プライバシーポリシー",
 					terms: "利用規約",
 					accountDeletion: "アカウント削除",
@@ -33,7 +31,6 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 				home: "首頁",
 				feed: "Feed",
 				create: "發佈",
-				tools: "工具",
 				privacy: "私隱政策",
 				terms: "使用條款",
 				accountDeletion: "刪除帳戶",
@@ -56,9 +53,6 @@ export function SiteFooter({ locale = "en" }: { locale?: Locale }) {
 							</Link>
 							<Link href="/add-post" className="text-[color:var(--txt-2)] transition hover:text-[color:var(--txt-1)]">
 								{t.create}
-							</Link>
-							<Link href="/turnstitle-form" className="text-[color:var(--txt-2)] transition hover:text-[color:var(--txt-1)]">
-								{t.tools}
 							</Link>
 						</nav>
 					</div>

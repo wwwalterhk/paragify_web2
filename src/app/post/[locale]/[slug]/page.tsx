@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
 import type { CSSProperties } from "react";
+import { normalizeOpenGraphLocale } from "@/lib/locale-meta";
 import { authOptions } from "@/lib/auth-options";
 import { FeedPostMediaCarousel } from "@/app/components/feed-post-media-carousel";
 import { PostComment, PostDetailComments } from "./post-detail-comments";
@@ -1085,7 +1086,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 			title,
 			description: seoSummary.description,
 			siteName: SITE_NAME,
-			locale: lang === "en" ? "en_US" : "zh_HK",
+			locale: normalizeOpenGraphLocale(locale),
 			publishedTime: post.created_at ?? undefined,
 			images: imageUrl
 				? [

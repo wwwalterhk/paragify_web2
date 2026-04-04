@@ -7,6 +7,7 @@ import type { CSSProperties, JSX } from "react";
 import { PostDetailComments, type PostComment } from "@/app/post/[locale]/[slug]/post-detail-comments";
 import { SiteFooter } from "@/app/components/site-footer";
 import PostViewTracker from "@/app/p/[slug]/PostViewTracker";
+import { normalizeOpenGraphLocale } from "@/lib/locale-meta";
 import {
 	DEFAULT_POST_COUNTRY_CODE,
 	getPostCountryLocaleValues,
@@ -25,6 +26,11 @@ const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL).
 const SITE_NAME = "Paragify";
 const DEFAULT_UI_LOCALE: UiLocale = "en";
 const HASHTAG_MATCH_PATTERN = /#[\p{L}\p{N}\p{M}_]+/gu;
+const EYEBROW_BADGE_STYLE = {
+	backgroundColor: "#CB1F27",
+	color: "#fff",
+	padding: "4px",
+} as const;
 
 type DbBindings = CloudflareEnv & { DB?: D1Database };
 type ArticleLocale = "en" | "zh";
@@ -1009,7 +1015,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 			title,
 			description: seoSummary.description,
 			siteName: SITE_NAME,
-			locale: locale === "en" ? "en_US" : "zh_HK",
+			locale: normalizeOpenGraphLocale(article.locale),
 			publishedTime: article.created_at ?? undefined,
 			modifiedTime: article.updated_at ?? article.created_at ?? undefined,
 			authors: [authorName],
@@ -1278,11 +1284,7 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 										{prepared?.eyebrow ? (
 											<p
 												className="inline-block text-sm font-semibold uppercase tracking-[0.28em]"
-												style={{
-													backgroundColor: "#CB1F27",
-													color: "#fff",
-													padding: "4px",
-												}}
+												style={EYEBROW_BADGE_STYLE}
 											>
 												{prepared.eyebrow}
 											</p>
@@ -1320,18 +1322,20 @@ export default async function ShortPostDetailPage({ params }: PageProps) {
 
 									{heroImage ? renderHeadingImageSection(heroImage, title, uiLocale, selectedCountry) : null}
 
-									{prepared?.keyLines.length ? (
-										<div
-											className="max-w-3xl space-y-3 border-l-2 pl-4"
-											style={{ borderColor: "color-mix(in srgb, var(--accent-2) 24%, transparent)" }}
-										>
-											{prepared.keyLines.map((line, index) => (
-												<p key={`key-line-${index}`} className="text-lg font-semibold leading-8 text-[color:var(--txt-1)]">
-													{line}
+										{prepared?.keyLines.length ? (
+											<div className="max-w-3xl space-y-3">
+												<p className="inline-block text-sm font-semibold" style={EYEBROW_BADGE_STYLE}>
+													重點摘要
 												</p>
-											))}
-										</div>
-									) : null}
+												<div className="space-y-3 border-l-2 pl-4" style={{ borderColor: EYEBROW_BADGE_STYLE.backgroundColor }}>
+													{prepared.keyLines.map((line, index) => (
+														<p key={`key-line-${index}`} className="text-lg font-semibold leading-8 text-[color:var(--txt-1)]">
+															{line}
+														</p>
+													))}
+												</div>
+											</div>
+										) : null}
 
 									{renderHeadingImageSection(secondaryHeadingImage, title, uiLocale, selectedCountry)}
 								</div>
