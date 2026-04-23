@@ -47,6 +47,9 @@
 			"service": "paragify"
 		}
 	],
+	"limits": {
+		"cpu_ms": 100000
+	},
 	"observability": {
 		"enabled": true
 	},
