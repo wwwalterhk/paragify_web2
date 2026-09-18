@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { guardPublicPageRequest } from "@/lib/request-guard";
 import {
 	getPostCountryPageLocale,
 	POST_COUNTRY_COOKIE_KEY,
@@ -37,8 +38,10 @@ function resolveAppContext(pathname: string): string {
 	return contextMatch?.[1] ?? "root";
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
 	const { pathname } = request.nextUrl;
+	const blocked = await guardPublicPageRequest(request, "paragify");
+	if (blocked) return blocked;
 	const localeOverride = readLocaleOverride(request);
 	const countryParam = request.nextUrl.searchParams.get("country") ?? undefined;
 	const countryCookie = request.cookies.get(POST_COUNTRY_COOKIE_KEY)?.value;
@@ -50,7 +53,9 @@ export function middleware(request: NextRequest) {
 		const redirectUrl = request.nextUrl.clone();
 		redirectUrl.pathname = "/";
 		redirectUrl.searchParams.set("locale", nextLocale);
-		return NextResponse.redirect(redirectUrl, 307);
+		const response = NextResponse.redirect(redirectUrl, 307);
+		response.headers.set("x-abuse-guard", "active");
+		return response;
 	}
 
 	const requestHeaders = new Headers(request.headers);
@@ -70,6 +75,7 @@ export function middleware(request: NextRequest) {
 			sameSite: "lax",
 		});
 	}
+	response.headers.set("x-abuse-guard", "active");
 
 	return response;
 }

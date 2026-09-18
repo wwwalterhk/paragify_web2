@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { cachePublicJson } from "@/lib/server-cache";
 import { SiteFooter } from "./components/site-footer";
 import {
 	DEFAULT_POST_COUNTRY_CODE,
@@ -1143,6 +1144,25 @@ async function loadHomePageData(
 	authorHandle: string | null,
 	countryCode: PostCountryCode,
 ): Promise<HomePageData> {
+	return cachePublicJson(
+		"paragify-public-posts-v1",
+		[pageRequest, locale, categoryCode, subcategoryCode, hashtag, searchQuery, authorHandle, countryCode],
+		categoryCode || subcategoryCode || hashtag || searchQuery || authorHandle || pageRequest > 1 ? 1800 : 300,
+		() => loadHomePageDataUncached(pageRequest, locale, categoryCode, subcategoryCode, hashtag, searchQuery, authorHandle, countryCode),
+		(value) => value.error === null,
+	);
+}
+
+async function loadHomePageDataUncached(
+	pageRequest: number,
+	locale: Locale,
+	categoryCode: string | null,
+	subcategoryCode: string | null,
+	hashtag: string | null,
+	searchQuery: string | null,
+	authorHandle: string | null,
+	countryCode: PostCountryCode,
+): Promise<HomePageData> {
 	try {
 		const { env } = await getCloudflareContext({ async: true });
 		const db = (env as CloudflareEnv & { DB?: D1Database }).DB;
@@ -1299,8 +1319,8 @@ async function loadHomePageData(
 			}
 		}
 
-		const taxonomyResult = await db
-			.prepare(
+		const taxonomy = await cachePublicJson("paragify-taxonomy-v1", [locale, countryCode], 900, async () => {
+			const taxonomyResult = await db.prepare(
 				`SELECT
 					pc.code AS category_code,
 					COALESCE(pct_local.name, pct_en.name, pc.code) AS category_name,
@@ -1349,6 +1369,8 @@ async function loadHomePageData(
 			)
 			.bind(locale, locale, ...countryLocaleValues)
 			.all<TaxonomyRow>();
+			return buildTaxonomy(taxonomyResult.results ?? []);
+		});
 
 		return {
 			error: null,
@@ -1356,7 +1378,7 @@ async function loadHomePageData(
 			totalPages,
 			totalPosts,
 			posts,
-			taxonomy: buildTaxonomy(taxonomyResult.results ?? []),
+			taxonomy,
 			hashtagOnlyFallbackCount,
 			hashtagOnlyFallbackPosts,
 		};
