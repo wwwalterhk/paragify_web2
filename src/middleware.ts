@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { guardPublicPageRequest } from "@/lib/request-guard";
-import { SEARCH_COOKIE, searchGrantKey } from "@/lib/search-verification";
 import {
 	getPostCountryPageLocale,
 	POST_COUNTRY_COOKIE_KEY,
@@ -48,28 +47,7 @@ export async function middleware(request: NextRequest) {
 		return response;
 	}
 
-	let trustedSearch = false;
-	if (pathname === "/" &&
-		(request.nextUrl.searchParams.get("q")?.trim() || request.nextUrl.searchParams.get("hashtag")?.trim())) {
-		const token = request.cookies.get(SEARCH_COOKIE)?.value;
-		const ip = request.headers.get("cf-connecting-ip");
-		const cache = (globalThis.caches as CacheStorage & { default?: Cache })?.default;
-		if (token && ip && cache) {
-			try { trustedSearch = Boolean(await cache.match(searchGrantKey(token, ip))); } catch { /* Require verification. */ }
-		}
-		if (!trustedSearch) {
-			const url = request.nextUrl.clone();
-			url.pathname = "/verify-search";
-			url.search = "";
-			url.searchParams.set("returnTo", request.nextUrl.pathname + request.nextUrl.search);
-			const response = NextResponse.redirect(url, 307);
-			response.headers.set("cache-control", "no-store");
-			response.headers.set("x-abuse-guard", "search-verification");
-			return response;
-		}
-	}
-
-	const blocked = await guardPublicPageRequest(request, "paragify-v2", { trustedSearch });
+  const blocked = await guardPublicPageRequest(request);
 	if (blocked) return blocked;
 	const localeOverride = readLocaleOverride(request);
 	const countryParam = request.nextUrl.searchParams.get("country") ?? undefined;
@@ -110,5 +88,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-	matcher: ["/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)"],
+	matcher: ["/api/feed", "/api/posts/feed", "/api/mobile/posts", "/api/posts/comments", "/api/posts/like", "/api/posts/view", "/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)"],
 };

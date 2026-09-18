@@ -10,7 +10,7 @@ type Turnstile = {
 
 export default function VerifySearchPage() {
 	const container = useRef<HTMLDivElement>(null);
-	const [message, setMessage] = useState("Please verify to continue searching. / 請完成驗證以繼續搜尋。");
+	const [message, setMessage] = useState("Please verify to continue browsing. / 請完成驗證以繼續瀏覽。");
 
 	useEffect(() => {
 		let disposed = false;
@@ -54,7 +54,7 @@ export default function VerifySearchPage() {
 	}, []);
 
 	return <main className="mx-auto max-w-xl p-8">
-		<h1 className="text-2xl font-bold">Continue searching / 繼續搜尋</h1>
+		<h1 className="text-2xl font-bold">Continue browsing / 繼續瀏覽</h1>
 		<p role="status" className="my-4">{message}</p>
 		<div ref={container} />
 		<a className="mt-6 block underline" href="/">Return to homepage / 返回主頁</a>

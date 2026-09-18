@@ -50,6 +50,12 @@
 	"limits": {
 		"cpu_ms": 100000
 	},
+	"ratelimits": [
+		{ "name": "ABUSE_PAGE_LIMIT", "namespace_id": "918301", "simple": { "limit": 120, "period": 60 } },
+		{ "name": "ABUSE_API_LIMIT", "namespace_id": "918302", "simple": { "limit": 120, "period": 60 } },
+		{ "name": "ABUSE_SEARCH_LIMIT", "namespace_id": "918303", "simple": { "limit": 60, "period": 60 } },
+		{ "name": "ABUSE_AGGREGATE_LIMIT", "namespace_id": "918304", "simple": { "limit": 1200, "period": 60 } }
+	],
 	"observability": {
 		"enabled": true
 	},

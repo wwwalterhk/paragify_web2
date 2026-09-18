@@ -11,7 +11,7 @@ export function safeSearchReturn(value: string | null): string {
 	if (!value || value.length > 4096) return "/";
 	try {
 		const url = new URL(value, SITE_ORIGIN);
-		if (url.origin !== SITE_ORIGIN || url.pathname !== "/") return "/";
+		if (url.origin !== SITE_ORIGIN || /^\/(?:api|_next|verify-search)(?:\/|$)/.test(url.pathname)) return "/";
 		return url.pathname + url.search;
 	} catch {
 		return "/";
