@@ -51,6 +51,10 @@
 		"cpu_ms": 100000
 	},
 	"ratelimits": [
+		{ "name": "ABUSE_RISK_LIMIT", "namespace_id": "918305", "simple": { "limit": 30, "period": 60 } },
+		{ "name": "ABUSE_VERIFIED_LIMIT", "namespace_id": "918306", "simple": { "limit": 240, "period": 60 } },
+		{ "name": "ABUSE_VERIFY_LIMIT", "namespace_id": "918307", "simple": { "limit": 10, "period": 60 } },
+		{ "name": "ABUSE_FAILURE_LIMIT", "namespace_id": "918308", "simple": { "limit": 5, "period": 60 } },
 		{ "name": "ABUSE_PAGE_LIMIT", "namespace_id": "918301", "simple": { "limit": 120, "period": 60 } },
 		{ "name": "ABUSE_API_LIMIT", "namespace_id": "918302", "simple": { "limit": 120, "period": 60 } },
 		{ "name": "ABUSE_SEARCH_LIMIT", "namespace_id": "918303", "simple": { "limit": 60, "period": 60 } },

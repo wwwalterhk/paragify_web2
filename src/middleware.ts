@@ -88,5 +88,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-	matcher: ["/api/feed", "/api/posts/feed", "/api/mobile/posts", "/api/posts/comments", "/api/posts/like", "/api/posts/view", "/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)"],
+	matcher: ["/p/:path*", "/post/:path*", "/api/feed", "/api/posts/feed", "/api/mobile/posts", "/api/posts/comments", "/api/posts/like", "/api/posts/view", "/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)"],
 };

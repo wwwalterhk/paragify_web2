@@ -12,7 +12,8 @@ export function safeSearchReturn(value: string | null): string {
 	try {
 		const url = new URL(value, SITE_ORIGIN);
 		if (url.origin !== SITE_ORIGIN || /^\/(?:api|_next|verify-search)(?:\/|$)/.test(url.pathname)) return "/";
-		return url.pathname + url.search;
+		if (url.pathname.startsWith("//")) return "/";
+    return url.pathname + url.search;
 	} catch {
 		return "/";
 	}

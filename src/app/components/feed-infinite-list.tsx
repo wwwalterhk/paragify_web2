@@ -1,5 +1,7 @@
 "use client";
 
+import { handleVerificationRequired } from "@/lib/browser-verification";
+
 import {
 	Bars3BottomLeftIcon,
 	BookmarkIcon as BookmarkOutlineIcon,
@@ -35,6 +37,7 @@ type FeedInfiniteListProps = {
 };
 
 type FeedApiResponse = {
+	code?: string;
 	ok: boolean;
 	posts?: FeedPost[];
 	has_more?: boolean;
@@ -645,6 +648,10 @@ export function FeedInfiniteList({
 				cache: "no-store",
 			});
 			const data = (await response.json().catch(() => null)) as FeedApiResponse | null;
+			if (handleVerificationRequired(response, data)) {
+				setLoadError("Please complete browser verification.");
+				return;
+			}
 
 			if (!response.ok || !data?.ok || !Array.isArray(data.posts)) {
 				throw new Error(data?.error || "Failed to load more posts.");
@@ -718,7 +725,7 @@ export function FeedInfiniteList({
 
 	useEffect(() => {
 		const sentinel = sentinelRef.current;
-		if (!sentinel) {
+		if (!sentinel || loadError) {
 			return;
 		}
 
@@ -740,7 +747,7 @@ export function FeedInfiniteList({
 		return () => {
 			observer.disconnect();
 		};
-	}, [loadMore]);
+	}, [loadMore, loadError]);
 
 	if (posts.length === 0) {
 		return (
