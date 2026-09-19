@@ -1319,16 +1319,17 @@ async function loadHomePageDataUncached(
 			}
 		}
 
-		const taxonomy = await cachePublicJson("paragify-taxonomy-v1", [locale, countryCode], 900, async () => {
-			const taxonomyResult = await db.prepare(
-				`SELECT
+		// Counts depend on the content locale set, not the display-language labels.
+		const [taxonomyLabels, taxonomyCounts] = await Promise.all([
+			cachePublicJson("paragify-taxonomy-labels-v2", [locale], 3600, async () => {
+				const result = await db.prepare(`SELECT
 					pc.code AS category_code,
 					COALESCE(pct_local.name, pct_en.name, pc.code) AS category_name,
 					COALESCE(pct_local.description, pct_en.description) AS category_description,
 					psc.code AS subcategory_code,
 					COALESCE(psct_local.name, psct_en.name, psc.code) AS subcategory_name,
 					COALESCE(psct_local.description, psct_en.description) AS subcategory_description,
-					COUNT(DISTINCT p.post_id) AS post_count
+					psc.posts_subcategory_id
 				FROM posts_categories pc
 				LEFT JOIN posts_category_translations pct_local
 					ON pct_local.posts_category_id = pc.posts_category_id
@@ -1345,12 +1346,6 @@ async function loadHomePageDataUncached(
 				LEFT JOIN posts_subcategory_translations psct_en
 					ON psct_en.posts_subcategory_id = psc.posts_subcategory_id
 					AND lower(psct_en.locale) = 'en'
-				LEFT JOIN posts_subcategory_assignments psa
-					ON psa.posts_subcategory_id = psc.posts_subcategory_id
-				LEFT JOIN posts p
-					ON p.post_id = psa.post_id
-					AND p.visibility = 'public'
-					AND lower(replace(COALESCE(p.locale, ''), '_', '-')) IN (${countryLocalePlaceholders})
 				WHERE pc.is_active = 1
 				GROUP BY
 					pc.posts_category_id,
@@ -1365,12 +1360,28 @@ async function loadHomePageDataUncached(
 					psct_en.name,
 					psct_local.description,
 					psct_en.description
-				ORDER BY pc.sort_order ASC, psc.sort_order ASC, psc.posts_subcategory_id ASC`,
-			)
-			.bind(locale, locale, ...countryLocaleValues)
-			.all<TaxonomyRow>();
-			return buildTaxonomy(taxonomyResult.results ?? []);
-		});
+				ORDER BY pc.sort_order ASC, psc.sort_order ASC, psc.posts_subcategory_id ASC`)
+					.bind(locale, locale)
+					.all<Omit<TaxonomyRow, "post_count"> & { posts_subcategory_id: number | null }>();
+				return result.results ?? [];
+			}),
+			cachePublicJson("paragify-taxonomy-counts-v2", [countryLocaleValues], 900, async () => {
+				const result = await db.prepare(`SELECT psa.posts_subcategory_id, COUNT(DISTINCT p.post_id) AS post_count
+FROM posts_subcategory_assignments psa
+JOIN posts p ON p.post_id = psa.post_id
+WHERE p.visibility = 'public'
+  AND lower(replace(COALESCE(p.locale, ''), '_', '-')) IN (${countryLocalePlaceholders})
+GROUP BY psa.posts_subcategory_id`)
+					.bind(...countryLocaleValues)
+					.all<{ posts_subcategory_id: number; post_count: number }>();
+				return result.results ?? [];
+			}),
+		]);
+		const countsBySubcategory = new Map(taxonomyCounts.map((row) => [row.posts_subcategory_id, row.post_count]));
+		const taxonomy = buildTaxonomy(taxonomyLabels.map((row) => ({
+			...row,
+			post_count: row.posts_subcategory_id === null ? 0 : countsBySubcategory.get(row.posts_subcategory_id) ?? 0,
+		})));
 
 		return {
 			error: null,
